@@ -4,6 +4,8 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 [[ $# -eq 0 ]] || { echo "Usage: scripts/ci.sh" >&2; exit 1; }
+python3 scripts/check-project.py
+python3 scripts/test-release.py
 for script in scripts/*.sh; do bash -n "$script"; done
 plutil -lint OnTop/Info.plist OnTop.xcodeproj/project.pbxproj OnTop/Resources/*.lproj/Localizable.strings
 

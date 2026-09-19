@@ -1,0 +1,18 @@
+name: Feature request / 功能建议
+description: Describe a use case worth making easier / 描述想改善的使用场景
+labels: [enhancement]
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: What are you trying to do? / 你想完成什么？
+      description: Tell us about the workflow and what gets in your way. / 描述工作流程和遇到的不便。
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Suggested change / 改进想法
+      description: Include alternatives, if useful. / 也可以提供替代方案。
+    validations:
+      required: true

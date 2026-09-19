@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & ideas / 交流讨论
+    url: https://github.com/laixintao/ontop/discussions
+    about: Ask a question or share how you use OnTop. / 提问或分享使用场景。
+  - name: Security report / 安全报告
+    url: https://github.com/laixintao/ontop/security/advisories/new
+    about: Report vulnerabilities privately. / 私密报告漏洞。

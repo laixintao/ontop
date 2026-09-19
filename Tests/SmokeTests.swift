@@ -181,21 +181,26 @@ enum SmokeTests {
         let underneath = NSWindow(contentRect: original, styleMask: .borderless, backing: .buffered, defer: false)
         underneath.isReleasedWhenClosed = false
         underneath.level = .floating
+        // The developer may run tests while another app is in a fullscreen Space.
+        // Put the receiver in the same Spaces as the preview being tested.
+        underneath.collectionBehavior = preview.panel.collectionBehavior
         underneath.orderFrontRegardless()
         preview.panel.orderFrontRegardless()
         preview.setChromeVisible(false)
         defer { underneath.close() }
-        try await Task.sleep(for: .milliseconds(100))
-        try check(NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0) == underneath.windowNumber,
-                  "WindowServer must route picture clicks to the window underneath")
+        underneath.displayIfNeeded()
+        CATransaction.flush()
+        try await waitFor("WindowServer must route picture clicks to the window underneath (receiver=\(underneath.windowNumber), point=\(center), visible=\(underneath.isVisible))") {
+            NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0) == underneath.windowNumber
+        }
         preview.setChromeVisible(true)
         preview.controlsPanel.contentView?.layoutSubtreeIfNeeded()
         preview.controlsPanel.displayIfNeeded()
         CATransaction.flush()
-        try await Task.sleep(for: .milliseconds(100))
         let buttonPoint = preview.controlsPanel.convertPoint(toScreen: preview.returnButton.convert(CGPoint(x: preview.returnButton.bounds.midX, y: preview.returnButton.bounds.midY), to: nil))
-        try check(NSWindow.windowNumber(at: buttonPoint, belowWindowWithWindowNumber: 0) == preview.controlsPanel.windowNumber,
-                  "WindowServer button routing: hit=\(NSWindow.windowNumber(at: buttonPoint, belowWindowWithWindowNumber: 0)), expected=\(preview.controlsPanel.windowNumber), point=\(buttonPoint), controls=\(preview.controlsPanel.frame), button=\(preview.returnButton.frame), visible=\(preview.controlsPanel.isVisible)")
+        try await waitFor("WindowServer button routing: expected=\(preview.controlsPanel.windowNumber), point=\(buttonPoint), controls=\(preview.controlsPanel.frame), button=\(preview.returnButton.frame), visible=\(preview.controlsPanel.isVisible)") {
+            NSWindow.windowNumber(at: buttonPoint, belowWindowWithWindowNumber: 0) == preview.controlsPanel.windowNumber
+        }
         try check(NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0) == underneath.windowNumber,
                   "Hovering must not turn the picture into an input blocker")
 

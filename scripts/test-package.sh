@@ -25,6 +25,7 @@ verify_app() {
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")" == "14.0" ]]
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$app/Contents/Info.plist")" == "true" ]]
     [[ -s "$app/Contents/Resources/OnTop.icns" ]]
+    cmp "$PROJECT_ROOT/LICENSE" "$app/Contents/Resources/LICENSE"
     for locale in en zh-Hans; do
         plutil -lint "$app/Contents/Resources/$locale.lproj/Localizable.strings"
     done

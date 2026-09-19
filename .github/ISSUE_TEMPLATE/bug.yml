@@ -1,0 +1,34 @@
+name: Bug report / 问题反馈
+description: Something isn't working as expected / 功能未按预期工作
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened? / 发生了什么？
+      description: Describe the actual and expected behavior. / 描述实际情况与预期表现。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      placeholder: |
+        1. Select a window in…
+        2. Switch to…
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment / 运行环境
+      placeholder: OnTop 1.1.0 · macOS 15.7 · Apple Silicon · Preview.app
+      description: App version, macOS, chip, and source app. / 版本、系统、芯片和来源 App。
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or logs / 截图或日志
+      description: Optional. Remove private window content and credentials. / 可选，请去除私人窗口内容和凭据。

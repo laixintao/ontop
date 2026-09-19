@@ -44,6 +44,7 @@ fi
 
 cp "$PROJECT_ROOT/OnTop/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp -R "$PROJECT_ROOT/OnTop/Resources/." "$APP_DIR/Contents/Resources/"
+cp "$PROJECT_ROOT/LICENSE" "$APP_DIR/Contents/Resources/LICENSE"
 plutil -lint "$APP_DIR/Contents/Info.plist"
 codesign --force --sign - "$APP_DIR"
 codesign --verify --strict --all-architectures "$APP_DIR"
