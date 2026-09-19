@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 — 2026-09-19
+
+[Release notes / 发布说明](docs/releases/v1.1.1.md)
+
+- Prepare public release with bilingual docs and automated delivery (`7fea13c`)
+- project init (`af25306`)
+
 ## 1.1.0 — First public release
 
 ### English
