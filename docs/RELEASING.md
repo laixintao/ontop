@@ -7,8 +7,8 @@
 After committing your work on `main`, run:
 
 ```bash
-make release                   # 1.1.0 → 1.1.1
-make release VERSION=1.2.0      # Or choose a newer version
+make release                   # 1.2.0 → 1.2.1
+make release VERSION=1.3.0      # Or choose a newer version
 ```
 
 Choose one command. It increments the app version and build number, adds a changelog entry, creates bilingual release notes from commits since the current version tag, commits those changes, creates an annotated tag, and **atomically pushes main and the tag**. GitHub Actions tests, builds, uploads the DMG/ZIP/checksums, attests their provenance, and publishes the release. You do not need to build or upload installers locally.
@@ -50,7 +50,7 @@ If an upload is interrupted, rerun the failed job: an existing draft can be comp
 Download the installer and `SHA256SUMS` from the same release. To verify one downloaded file:
 
 ```bash
-shasum -a 256 OnTop-1.1.0-universal.dmg
+shasum -a 256 OnTop-1.2.0-universal.dmg
 # Compare the digest with its entry in SHA256SUMS.
 ```
 
@@ -59,7 +59,7 @@ If you downloaded both DMG and ZIP, run `shasum -a 256 -c SHA256SUMS` from that 
 With the GitHub CLI installed, also verify where the installer was built:
 
 ```bash
-gh attestation verify OnTop-1.1.0-universal.dmg --repo laixintao/ontop
+gh attestation verify OnTop-1.2.0-universal.dmg --repo laixintao/ontop
 ```
 
 [GitHub's attestation documentation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-artifact-attestations) describes the verification model.

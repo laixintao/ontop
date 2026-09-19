@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0 — Independent reference windows
+
+### English
+
+- Share multiple windows at once: each source has its own preview, stream, position, size, opacity, and controls.
+- Add a reference from the menu bar or macOS sharing menu without replacing an existing one. The preview's chooser replaces only that source.
+- Per-window menus, individual Stop actions, and Stop All. New windows start in separate positions and remember settings by preview slot.
+- Only previews belonging to the active source app hide; other references remain visible.
+- Route overlapping hover controls to the topmost preview. Reject late callbacks for closed windows and deduplicate repeated selections on macOS 15.2+.
+- Native multi-window regression tests cover independent rendering, picker routing, state/settings isolation, source switching, and cleanup.
+
+### 中文
+
+- 同时共享多个窗口，每个来源都有独立的预览、采集流、位置、尺寸、不透明度和控件。
+- 从菜单栏或 macOS 共享菜单添加参考窗口，不会替换已存在的预览；浮窗上的选择按钮只更换自身来源。
+- 各窗口独立菜单、停止操作，以及「全部停止」；新窗口错开排列，按槽位分别记住设置。
+- 激活来源 App 时，只隐藏该 App 的预览，其他参考窗口继续显示。
+- 重叠时只显示最上方预览的控件；拒绝已关闭窗口的迟到回调，并在 macOS 15.2+ 对重复来源去重。
+- 原生多窗口回归测试覆盖独立渲染、选择器路由、状态与设置隔离、来源切换和清理。
+
 ## 1.1.1 — 2026-09-19
 
 [Release notes / 发布说明](docs/releases/v1.1.1.md)
@@ -7,7 +27,7 @@
 - Prepare public release with bilingual docs and automated delivery (`7fea13c`)
 - project init (`af25306`)
 
-## 1.1.0 — First public release
+## 1.1.0 — Initial implementation
 
 ### English
 

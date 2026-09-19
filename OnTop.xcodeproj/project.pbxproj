@@ -11,6 +11,7 @@
         A00000000000000000000005 = {isa = PBXBuildFile; fileRef = C00000000000000000000004; };
         A00000000000000000000006 = {isa = PBXBuildFile; fileRef = B00000000000000000000008; };
         A00000000000000000000007 = {isa = PBXBuildFile; fileRef = B00000000000000000000011; };
+        A00000000000000000000008 = {isa = PBXBuildFile; fileRef = B00000000000000000000012; };
 
         B00000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
         B00000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -23,6 +24,7 @@
         B00000000000000000000009 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OnTop.app; sourceTree = BUILT_PRODUCTS_DIR; };
         B00000000000000000000010 = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
         B00000000000000000000011 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameRenderer.swift; sourceTree = "<group>"; };
+        B00000000000000000000012 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinManager.swift; sourceTree = "<group>"; };
 
         C00000000000000000000001 = {
             isa = PBXGroup;
@@ -31,7 +33,7 @@
         };
         C00000000000000000000002 = {
             isa = PBXGroup;
-            children = (B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000011, B00000000000000000000005, C00000000000000000000003);
+            children = (B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000011, B00000000000000000000012, B00000000000000000000005, C00000000000000000000003);
             path = OnTop;
             sourceTree = "<group>";
         };
@@ -57,7 +59,7 @@
         D00000000000000000000001 = {
             isa = PBXSourcesBuildPhase;
             buildActionMask = 2147483647;
-            files = (A00000000000000000000001, A00000000000000000000002, A00000000000000000000003, A00000000000000000000004, A00000000000000000000007);
+            files = (A00000000000000000000001, A00000000000000000000002, A00000000000000000000003, A00000000000000000000004, A00000000000000000000007, A00000000000000000000008);
             runOnlyForDeploymentPostprocessing = 0;
         };
         D00000000000000000000002 = {

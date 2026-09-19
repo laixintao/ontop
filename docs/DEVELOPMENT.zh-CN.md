@@ -26,12 +26,15 @@ open build/Debug/OnTop.app
 
 | 文件 | 职责 |
 | --- | --- |
-| [`AppDelegate.swift`](../OnTop/AppDelegate.swift) | 菜单栏、应用生命周期、来源 App 激活通知、采集与预览连接 |
-| [`CaptureController.swift`](../OnTop/CaptureController.swift) | 系统选择器、串行采集生命周期、代际检查、帧率与分辨率调整 |
+| [`AppDelegate.swift`](../OnTop/AppDelegate.swift) | 菜单栏及各窗口操作、应用生命周期、来源 App 激活通知 |
+| [`PinManager.swift`](../OnTop/PinManager.swift) | 共享选择器管理、采集流路由、独立采集与预览、去重和退出清理 |
+| [`CaptureController.swift`](../OnTop/CaptureController.swift) | 单个采集流的串行生命周期、代际检查、帧率与分辨率调整 |
 | [`PreviewPanelController.swift`](../OnTop/PreviewPanelController.swift) | 穿透画面、独立交互控件、悬停、几何尺寸、不透明度与设置 |
 | [`FrameRenderer.swift`](../OnTop/FrameRenderer.swift) | 有效内容区域、有上限的 GPU 裁剪缓冲池、原生视频帧显示 |
 
 画面窗口始终忽略鼠标事件。控件使用独立的不激活浮窗，出现时不会让整张画面拦截输入。仅在预览可见时以 20 Hz 读取鼠标位置，无需全局事件监听权限。
+
+每个新来源都有独立的采集和预览。选择器回调带 stream 时只更新对应窗口，nil-stream 回调新增窗口。macOS 15.2+ 用窗口 ID 去重；各槽位独立保存布局和透明度，新槽位默认错开排列。重叠时只读取 AppKit 中本应用的窗口顺序来决定悬停控件归属。激活来源 App 只隐藏它自己的预览；单个采集流失败或停止不会关闭其他窗口的共享选择器。
 
 采集最高 15 fps，队列深度为 3。常规画面不额外复制；有填充边缘的帧使用 Core Image 裁剪。裁剪依据元数据，不依据像素颜色。`contentRect` 以 surface point 为单位，乘以 `scaleFactor` 得到像素；`contentScale` 已被系统应用，不能再次缩小画面。
 
@@ -64,6 +67,7 @@ GitHub CI 在 Apple Silicon 和 Intel 上执行。编译警告（包括严格并
 自动测试使用合成帧，真实系统选择器和其他 App 仍需简短手动验证：
 
 - 选择浏览器文档或 PDF，检查文字清晰度和滚动更新。
+- 通过「添加窗口…」和 macOS 共享菜单添加第二个来源，检查画面、移动缩放、透明度、来源切换、取消、更换和单独停止；也验证同一 App 的两个窗口。
 - 在预览下面点击、滚动、选择文字；悬停控件可操作且不抢键盘焦点。
 - 反复返回来源再切走，调整原窗口大小，确认没有黑边累积、尺寸漂移或重复浮窗。
 - 调整不透明度、移动、缩放、重启，并通过菜单重置布局。

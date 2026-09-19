@@ -2,6 +2,10 @@
 "OnTop — preview is open" = "OnTop — 正在置顶预览";
 "OnTop — preview returns when you switch apps" = "OnTop — 切到其他 App 后恢复预览";
 "Choose Window…" = "选择窗口…";
+"Add Window…" = "添加窗口…";
+"Stop All" = "全部停止";
+"Window" = "窗口";
+"OnTop — %d pinned windows" = "OnTop — 已置顶 %d 个窗口";
 "Stop Pinning" = "停止置顶";
 "Quit OnTop" = "退出 OnTop";
 "Choose another window" = "选择其他窗口";

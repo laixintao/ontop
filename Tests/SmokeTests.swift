@@ -23,7 +23,8 @@ enum SmokeTests {
                 try cropping()
                 try await interactionAndRendering()
                 try await pointerLifecycle()
-                print("PASS [\(Bundle.main.preferredLocalizations.first ?? "en")]: \(assertions) assertions — pixel cropping, click-through, controls, opacity, geometry, app switching, lifecycle")
+                try await multipleWindows()
+                print("PASS [\(Bundle.main.preferredLocalizations.first ?? "en")]: \(assertions) assertions — pixel cropping, click-through, controls, opacity, geometry, app switching, multiple windows, lifecycle")
                 exit(0)
             } catch {
                 fputs("FAIL: \(error)\n", stderr)
@@ -322,7 +323,7 @@ enum SmokeTests {
         preview.stopButton.performClick(nil)
         try check(closed == 2 && !preview.panel.isVisible && !preview.controlsPanel.isVisible, "Explicit Stop button must remove all windows")
         await capture.shutdown()
-        try check(capture.state == .idle && !SCContentSharingPicker.shared.isActive, "Stop deactivates picker and capture")
+        try check(capture.state == .idle, "Stop leaves the capture idle")
         try check(!capture.activateSourceApplication(), "Idle capture cannot activate an unrelated app")
     }
 
@@ -340,6 +341,140 @@ enum SmokeTests {
         try check(near(preview.panel.frame.width, 480), "Menu reset recovers the default usable size")
         preview.close()
         try check(!preview.isTrackingPointer && !preview.controlsPanel.isVisible, "Stop releases hover timer and controls")
+    }
+
+    @MainActor
+    private final class TestCapture: WindowCapture {
+        let token = NSObject()
+        var state: CaptureState = .idle { didSet { onStateChange?(state) } }
+        var sourceApplicationProcessIdentifier: pid_t?
+        var sourceWindowIdentifier: CGWindowID?
+        var streamForPicker: SCStream? { nil }
+        var streamIdentifier: ObjectIdentifier? { ObjectIdentifier(token) }
+        var onFrame: ((CMSampleBuffer) -> Void)?
+        var onReset: (() -> Void)?
+        var onSelection: ((CGSize, String?, Bool) -> Void)?
+        var onStateChange: ((CaptureState) -> Void)?
+        var stops = 0, shutdowns = 0, activations = 0
+        var viewport = CGSize.zero
+        func select(_ filter: SCContentFilter) {}
+        func show(id: CGWindowID, pid: pid_t, size: CGSize = CGSize(width: 800, height: 500)) {
+            sourceWindowIdentifier = id
+            sourceApplicationProcessIdentifier = pid
+            state = .waiting
+            onSelection?(size, "Reference \(id)", true)
+            state = .live
+        }
+        func resize(to size: CGSize, scale: CGFloat) { viewport = size }
+        @discardableResult func activateSourceApplication() -> Bool { activations += 1; return true }
+        func stop() { stops += 1; state = .idle }
+        func shutdown() async { shutdowns += 1 }
+    }
+
+    private static func multipleWindows() async throws {
+        let (defaults, domain) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: domain) }
+        var captures: [TestCapture] = []
+        let pins = PinManager(defaults: defaults, tracksPointer: false) {
+            let capture = TestCapture()
+            captures.append(capture)
+            return capture
+        }
+        try check(pins.beginSelection(), "Begin an initial share")
+        try check(!pins.beginSelection(), "Only one system picker may be presented at a time")
+        let first = pins.destination(for: nil, sourceWindowID: 101)!
+        captures[0].show(id: 101, pid: 1001)
+        // A nil-stream callback from the system sharing menu must add a new
+        // preview even when OnTop did not explicitly present that picker.
+        let second = pins.destination(for: nil, sourceWindowID: 102)!
+        captures[1].show(id: 102, pid: 1002)
+        try check(pins.windows.count == 2 && first !== second, "Two shared windows must create two independent previews")
+        try check(first.preview.panel !== second.preview.panel && first.preview.panel.isVisible && second.preview.panel.isVisible, "Both native preview windows must be visible")
+        try check(first.preview.panel.frame != second.preview.panel.frame, "New preview slots must not stack in exactly the same position")
+        try check(first.preview.panel.ignoresMouseEvents && second.preview.panel.ignoresMouseEvents, "Every picture remains click-through")
+        let firstFrame = first.preview.panel.frame
+        let secondFrame = second.preview.panel.frame
+        first.preview.setOpacity(0.4)
+        second.preview.setOpacity(0.85)
+        try check(near(first.preview.panel.alphaValue, 0.4) && near(second.preview.panel.alphaValue, 0.85), "Each window has independent opacity")
+        try check(near(defaults.double(forKey: "previewOpacity"), 0.4) && near(defaults.double(forKey: "preview.1.previewOpacity"), 0.85), "Settings must persist separately per preview slot")
+        first.preview.returnButton.performClick(nil)
+        try check(captures[0].activations == 1 && captures[1].activations == 0, "Return must activate only the selected source")
+        for _ in 0..<10 {
+            pins.setFrontmostApplication(1001)
+            try check(!first.preview.panel.isVisible && second.preview.panel.isVisible, "Using source A must leave source B visible")
+            pins.setFrontmostApplication(1002)
+            try check(first.preview.panel.isVisible && !second.preview.panel.isVisible, "Using source B must leave source A visible")
+            pins.setFrontmostApplication(1003)
+            try check(first.preview.panel.frame == firstFrame && second.preview.panel.frame == secondFrame, "Switching apps preserves each preview's geometry")
+        }
+
+        let firstPixels = try makeFrame(content: CGRect(x: 80, y: 60, width: 320, height: 200))
+        let secondPixels = try makeFrame(content: CGRect(x: 40, y: 20, width: 240, height: 240))
+        captures[0].onFrame?(firstPixels)
+        captures[1].onFrame?(secondPixels)
+        let firstRenderer = first.preview.videoView.displayLayer.sampleBufferRenderer
+        let secondRenderer = second.preview.videoView.displayLayer.sampleBufferRenderer
+        CMTimebaseSetRate(firstRenderer.timebase, rate: 0)
+        CMTimebaseSetRate(secondRenderer.timebase, rate: 0)
+        if #available(macOS 14.4, *) {
+            try await waitFor("Both independent renderers must receive their own frames") {
+                firstRenderer.displayedPixelBuffer().map { CVPixelBufferGetWidth($0) == 320 } == true &&
+                secondRenderer.displayedPixelBuffer().map { CVPixelBufferGetWidth($0) == 240 } == true
+            }
+            try checkQuadrants(firstRenderer.displayedPixelBuffer()!)
+            try checkQuadrants(secondRenderer.displayedPixelBuffer()!)
+        }
+        try check(near(first.preview.panel.frame.width / first.preview.panel.frame.height, 1.6) && near(second.preview.panel.frame.width / second.preview.panel.frame.height, 1), "One source's aspect changes must not resize another preview")
+
+        // Overlap the two pictures: only the top one may show a toolbar.
+        second.preview.panel.setFrame(first.preview.panel.frame, display: true)
+        second.preview.panel.orderFrontRegardless()
+        let point = CGPoint(x: first.preview.panel.frame.midX, y: first.preview.panel.frame.midY)
+        first.preview.setChromeVisible(false)
+        second.preview.setChromeVisible(false)
+        try await waitFor("Hover routing must follow the topmost picture") { pins.hoverOwner(at: point) === second }
+        first.preview.updateHover(at: point)
+        second.preview.updateHover(at: point)
+        try check(!first.preview.isChromeVisible && second.preview.isChromeVisible, "Overlapping previews must not expose competing hover controls")
+        try snapshot(second.preview.controlsPanel.contentView!, name: "multiwindow-controls.png")
+        second.preview.resetSize()
+
+        try check(pins.beginSelection(replacing: first.id), "Replace only the requested preview")
+        try check(!first.preview.chooseButton.isEnabled && !second.preview.chooseButton.isEnabled, "Disable new picker actions in all previews during a selection")
+        try check(pins.destination(for: captures[0].streamIdentifier, sourceWindowID: 103) === first, "An existing stream's update must route to its own preview")
+        captures[0].show(id: 103, pid: 1004)
+        try check(pins.windows.count == 2 && captures[1].stops == 0, "Replacing one source must not replace or stop the second")
+        try check(pins.beginSelection(), "Begin adding another source")
+        pins.cancelSelection()
+        try check(pins.windows.count == 2 && !pins.isChoosing && SCContentSharingPicker.shared.isActive, "Cancel keeps existing previews and sharing active")
+        try check(pins.destination(for: nil, sourceWindowID: 102) === second && pins.windows.count == 2, "Re-sharing the same window must not make duplicates")
+
+        captures[1].sourceApplicationProcessIdentifier = 1004
+        pins.setFrontmostApplication(1004)
+        try check(!first.preview.panel.isVisible && !second.preview.panel.isVisible, "Two references from one source app must both hide when that app is active")
+        pins.setFrontmostApplication(1006)
+        try check(first.preview.panel.isVisible && second.preview.panel.isVisible, "Both references from the same app must return after switching away")
+
+        captures[0].state = .unavailable("Closed")
+        try check(second.preview.panel.isVisible && SCContentSharingPicker.shared.isActive, "An ended stream must not disable other streams or the shared picker")
+        let firstStream = captures[0].streamIdentifier
+        try check(pins.beginSelection(replacing: first.id), "Can choose a replacement for an ended source")
+        pins.stop(id: first.id)
+        try check(pins.destination(for: firstStream, sourceWindowID: 104) == nil && !pins.isChoosing, "Late selection for a stopped window cannot resurrect it or leave the picker busy")
+        try check(pins.windows.count == 1 && pins.windows.first === second && captures[1].stops == 0, "Stopping A keeps B capturing")
+        let third = pins.destination(for: nil, sourceWindowID: 105)!
+        captures[2].show(id: 105, pid: 1005)
+        try check(third.slot == 0 && near(third.preview.opacity, 0.4), "Reuse a freed preference slot without overwriting another window's settings")
+        second.preview.stopButton.performClick(nil)
+        try check(pins.windows.count == 1 && pins.windows.first === third && captures[2].stops == 0, "A preview's Stop button closes only that preview")
+        pins.stopAll()
+        try check(pins.windows.isEmpty && !SCContentSharingPicker.shared.isActive, "Stop All ends all previews and deactivates the picker")
+        try check(pins.destination(for: nil, sourceWindowID: 106) == nil, "Late new-share callbacks after Stop All cannot recreate previews")
+        try check(!first.preview.panel.isVisible && !second.preview.panel.isVisible && !third.preview.panel.isVisible, "Stop All hides every native window")
+        await pins.shutdown()
+        try check(captures.allSatisfy { $0.stops == 1 && $0.shutdowns == 1 }, "Every capture must be stopped and awaited exactly once")
+        try check(!pins.beginSelection(), "Shutdown must reject any new picker")
     }
 
     private static func makeFrame(width: Int = 640, height: Int = 400, content: CGRect? = nil,

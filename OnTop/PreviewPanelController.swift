@@ -94,6 +94,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     var onActivateSource: (() -> Void)?
     var onClose: (() -> Void)?
     var onResize: ((CGSize, CGFloat) -> Void)?
+    var shouldRevealControls: ((CGPoint) -> Bool)?
 
     let panel: NSPanel
     let controlsPanel: NSPanel
@@ -110,6 +111,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     private let statusBackground = NSVisualEffectView()
     private let defaults: UserDefaults
     private let tracksPointer: Bool
+    private let slot: Int
     private var pointerTimer: Timer?
     private var state: CaptureState = .idle
     private var sourceSize = CGSize(width: 800, height: 500)
@@ -123,9 +125,10 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     private(set) var opacity: Double = 1
     private(set) var isTrackingPointer = false
 
-    init(defaults: UserDefaults = .standard, tracksPointer: Bool = true) {
+    init(defaults: UserDefaults = .standard, tracksPointer: Bool = true, slot: Int = 0) {
         self.defaults = defaults
         self.tracksPointer = tracksPointer
+        self.slot = slot
         func makePanel(_ size: CGSize) -> NSPanel {
             let panel = PreviewPanel(contentRect: CGRect(origin: .zero, size: size),
                                      styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -156,7 +159,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         videoView.onContentSizeChange = { [weak self] size in self?.updateSourceSize(size) }
         configureHandle(moveHandle, resizing: false)
         configureHandle(resizeHandle, resizing: true)
-        setOpacity(defaults.object(forKey: "previewOpacity") as? Double ?? 1)
+        setOpacity(defaults.object(forKey: preferenceKey("previewOpacity")) as? Double ?? 1)
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
@@ -267,12 +270,12 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         returnButton.toolTip = title.map { "\(NSLocalizedString("Return to App", comment: "Preview control")): \($0)" }
         updateSourceAction()
         if !isPresented {
-            let saved = defaults.string(forKey: "previewFrame").map(NSRectFromString)
+            let saved = defaults.string(forKey: preferenceKey("previewFrame")).map(NSRectFromString)
             let savedScreen = saved.flatMap { frame in NSScreen.screens.first { $0.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) } }
             let screen = savedScreen ?? NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
             let available = screen?.visibleFrame.insetBy(dx: 16, dy: 16) ?? availableFrame
             let size = PreviewSizing.initialSize(source: sourceSize, available: available.size)
-            let initial = CGRect(x: available.maxX - size.width, y: available.maxY - size.height, width: size.width, height: size.height)
+            let initial = initialFrame(size: size, available: available)
             let restored = saved.flatMap { frame -> CGRect? in
                 guard frame.width > 0, frame.height > 0,
                       [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite) else { return nil }
@@ -306,10 +309,24 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     func resetSize() {
         guard isPresented else { return }
         let size = PreviewSizing.initialSize(source: sourceSize, available: availableFrame.size)
-        let frame = CGRect(x: availableFrame.maxX - size.width, y: availableFrame.maxY - size.height, width: size.width, height: size.height)
+        let frame = initialFrame(size: size, available: availableFrame)
         panel.setFrame(frame, display: true)
         layoutControls()
         saveFrame()
+    }
+
+    private func preferenceKey(_ key: String) -> String { slot == 0 ? key : "preview.\(slot).\(key)" }
+
+    private func initialFrame(size: CGSize, available: CGRect) -> CGRect {
+        let rows = max(1, Int((available.height + 16) / (size.height + 16)))
+        let columns = max(1, Int((available.width + 16) / (size.width + 16)))
+        let page = slot / (rows * columns)
+        let column = (slot / rows) % columns
+        let row = slot % rows
+        let frame = CGRect(x: available.maxX - size.width - CGFloat(column) * (size.width + 16) - CGFloat(page * 32),
+                           y: available.maxY - size.height - CGFloat(row) * (size.height + 16) - CGFloat(page * 32),
+                           width: size.width, height: size.height)
+        return PreviewSizing.constrained(frame, to: available)
     }
 
     func setSourceApplicationActive(_ active: Bool) {
@@ -357,6 +374,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         guard isPresented, panel.isVisible, !sourceIsActive else { setChromeVisible(false); return }
         let inside = panel.frame.contains(point) || (isChromeVisible && (controlsPanel.frame.contains(point) || resizePanel.frame.contains(point)))
         if isManipulating || (isChromeVisible && pressedButtons != 0) { return }
+        if inside, shouldRevealControls?(point) == false { setChromeVisible(false); return }
         if inside {
             lastHoverTime = now
             if pressedButtons == 0 { setChromeVisible(true) }
@@ -422,14 +440,14 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         layoutControls()
     }
 
-    private func saveFrame() { defaults.set(NSStringFromRect(panel.frame), forKey: "previewFrame") }
+    private func saveFrame() { defaults.set(NSStringFromRect(panel.frame), forKey: preferenceKey("previewFrame")) }
 
     func setOpacity(_ value: Double) {
         opacity = value.isFinite ? min(1, max(0.3, value)) : 1
         panel.alphaValue = opacity
         opacitySlider.doubleValue = opacity
         opacityLabel.stringValue = "\(Int((opacity * 100).rounded()))%"
-        defaults.set(opacity, forKey: "previewOpacity")
+        defaults.set(opacity, forKey: preferenceKey("previewOpacity"))
     }
 
     @objc private func opacityChanged() { setOpacity(opacitySlider.doubleValue) }

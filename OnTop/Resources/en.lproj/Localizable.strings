@@ -2,6 +2,10 @@
 "OnTop — preview is open" = "OnTop — preview is open";
 "OnTop — preview returns when you switch apps" = "OnTop — preview returns when you switch apps";
 "Choose Window…" = "Choose Window…";
+"Add Window…" = "Add Window…";
+"Stop All" = "Stop All";
+"Window" = "Window";
+"OnTop — %d pinned windows" = "OnTop — %d pinned windows";
 "Stop Pinning" = "Stop Pinning";
 "Quit OnTop" = "Quit OnTop";
 "Choose another window" = "Choose another window";

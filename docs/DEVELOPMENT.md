@@ -26,12 +26,15 @@ Quit a running development app before replacing its bundle. A new launch needs a
 
 | File | Responsibility |
 | --- | --- |
-| [`AppDelegate.swift`](../OnTop/AppDelegate.swift) | Menu bar, app lifecycle, source-app activation notifications, capture/preview wiring |
-| [`CaptureController.swift`](../OnTop/CaptureController.swift) | System picker, serialized stream lifecycle, generation guards, throttling, resize updates |
+| [`AppDelegate.swift`](../OnTop/AppDelegate.swift) | Menu bar with per-window actions, app lifecycle, source-app activation notifications |
+| [`PinManager.swift`](../OnTop/PinManager.swift) | Shared picker ownership, per-stream routing, independent capture/preview pairs, deduplication, shutdown |
+| [`CaptureController.swift`](../OnTop/CaptureController.swift) | One serialized stream lifecycle, generation guards, throttling, resize updates |
 | [`PreviewPanelController.swift`](../OnTop/PreviewPanelController.swift) | Click-through picture, independent interactive controls, hover, geometry, opacity, preferences |
 | [`FrameRenderer.swift`](../OnTop/FrameRenderer.swift) | Content-rect interpretation, bounded GPU crop pool, native sample-buffer display |
 
 The picture window always ignores mouse events. Controls are independent nonactivating panels, so making them visible never turns the picture into an input blocker. Hover reads the pointer location at 20 Hz only while the preview is visible; it needs no global event tap.
+
+Each selection creates a separate capture/preview pair. Picker callbacks carrying a stream update only that pair; nil-stream selections add a reference. On macOS 15.2+, window IDs prevent duplicate references. Per-slot layout/opacity persist independently; new slots start tiled. Overlapping previews resolve hover through AppKit's own window-number list. Using a source app hides only its previews. One stream failing or stopping never deactivates the others' shared picker.
 
 Capture uses a maximum of 15 fps and three queued frames. Ordinary frames remain zero-copy; frames with padding take the Core Image crop path. Cropping follows ScreenCaptureKit metadata, not pixel color. `contentRect` is measured in surface points; `scaleFactor` converts it to pixels. `contentScale` has already been applied and must not shrink it a second time.
 
@@ -64,6 +67,7 @@ GitHub CI runs this on Apple Silicon and Intel runners. Warnings are build error
 Automated tests use synthetic frames. The real sharing picker and other apps still need a short hands-on check:
 
 - Choose a browser page or PDF. Read static text, scroll the original, and verify live updates.
+- Add a second window using **Add Window…**, including through macOS's sharing menu. Check independent content, move/resize/opacity, source switching, cancel/replace, and stopping just one preview. Repeat with two windows from the same app.
 - Work through the preview: click, scroll, and select text underneath it. Hover controls should remain usable without taking keyboard focus.
 - Return to the source app, switch away repeatedly, and resize the original. Confirm no accumulating borders, scale drift, or duplicate previews.
 - Change opacity, move, resize, relaunch, and recover with **Reset Preview Size**.

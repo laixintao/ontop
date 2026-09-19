@@ -14,13 +14,11 @@ enum CaptureState: Equatable {
 }
 
 @MainActor
-final class CaptureController: NSObject {
+final class CaptureController: NSObject, WindowCapture {
     var onFrame: ((CMSampleBuffer) -> Void)?
     var onReset: (() -> Void)?
     var onSelection: ((CGSize, String?, Bool) -> Void)?
     var onStateChange: ((CaptureState) -> Void)?
-    var onPickerVisibilityChange: ((Bool) -> Void)?
-    var onPickerFailure: ((Error) -> Void)?
 
     private(set) var state: CaptureState = .idle {
         didSet { if state != oldValue { onStateChange?(state) } }
@@ -29,11 +27,14 @@ final class CaptureController: NSObject {
         guard let application = sourceApplication, !application.isTerminated else { return nil }
         return application.processIdentifier
     }
-    private let picker = SCContentSharingPicker.shared
+    var streamForPicker: SCStream? { stream }
+    var streamIdentifier: ObjectIdentifier? { stream.map(ObjectIdentifier.init) }
+    private(set) var sourceWindowIdentifier: CGWindowID?
     private let logger = Logger(subsystem: "app.ontop.OnTop", category: "Capture")
     private let backgroundColor = CGColor(gray: 0, alpha: 1)
     private var stream: SCStream?
     private var sourceApplication: NSRunningApplication?
+    private var sourceTitle: String?
     private var generation = 0
     private var frameGeneration: Int?
     private var operation: Task<Void, Never>?
@@ -41,43 +42,18 @@ final class CaptureController: NSObject {
     private var viewport = CGSize(width: 480, height: 300)
     private var backingScale: CGFloat = 2
     private var configuredSize = CGSize.zero
-    private var isChoosing = false {
-        didSet { onPickerVisibilityChange?(isChoosing) }
-    }
     private var isShuttingDown = false
-
-    override init() {
-        super.init()
-        var configuration = SCContentSharingPickerConfiguration()
-        configuration.allowedPickerModes = [.singleWindow]
-        configuration.excludedBundleIDs = [Bundle.main.bundleIdentifier ?? "app.ontop.OnTop"]
-        configuration.allowsChangingSelectedContent = true
-        picker.defaultConfiguration = configuration
-        picker.maximumStreamCount = 1
-        picker.add(self)
-    }
-
-    func chooseWindow() {
-        guard !isChoosing, !isShuttingDown else { return }
-        isChoosing = true
-        picker.isActive = true
-        if let stream {
-            picker.present(for: stream, using: .window)
-        } else {
-            picker.present(using: .window)
-        }
-    }
 
     func stop() {
         generation += 1
         frameGeneration = nil
         resizeTask?.cancel()
         resizeTask = nil
-        picker.isActive = false
-        isChoosing = false
         let previousStream = stream
         stream = nil
         sourceApplication = nil
+        sourceTitle = nil
+        sourceWindowIdentifier = nil
         configuredSize = .zero
         state = .idle
         onReset?()
@@ -91,7 +67,6 @@ final class CaptureController: NSObject {
     func shutdown() async {
         isShuttingDown = true
         stop()
-        picker.remove(self)
         await operation?.value
     }
 
@@ -138,13 +113,8 @@ final class CaptureController: NSObject {
         }
     }
 
-    private func select(_ filter: SCContentFilter, for selectedStreamID: ObjectIdentifier?) {
-        guard !isShuttingDown, picker.isActive else { return }
-        if let selectedStreamID, selectedStreamID != stream.map(ObjectIdentifier.init) { return }
-        // A nil-stream callback belongs to an initial picker we presented.
-        guard selectedStreamID != nil || isChoosing else { return }
-        isChoosing = false
-        guard filter.style == .window else { return }
+    func select(_ filter: SCContentFilter) {
+        guard !isShuttingDown, filter.style == .window else { return }
 
         generation += 1
         let selection = generation
@@ -154,13 +124,16 @@ final class CaptureController: NSObject {
         state = .waiting
         var title: String?
         sourceApplication = nil
+        sourceWindowIdentifier = nil
         if #available(macOS 15.2, *) {
             let window = filter.includedWindows.first
+            sourceWindowIdentifier = window?.windowID
             title = window?.title ?? window?.owningApplication?.applicationName
             if let processID = window?.owningApplication?.processID {
                 sourceApplication = NSRunningApplication(processIdentifier: processID)
             }
         }
+        sourceTitle = title
         onSelection?(filter.contentRect.size, title, sourceApplication != nil)
 
         enqueue { [weak self] in
@@ -207,7 +180,7 @@ final class CaptureController: NSObject {
         configuration.ignoreShadowsSingleWindow = true
         configuration.ignoreGlobalClipSingleWindow = true
         configuration.backgroundColor = backgroundColor
-        configuration.streamName = "OnTop"
+        configuration.streamName = sourceTitle ?? "OnTop"
         return configuration
     }
 
@@ -219,8 +192,6 @@ final class CaptureController: NSObject {
         let previousStream = stream
         stream = nil
         sourceApplication = nil
-        picker.isActive = false
-        isChoosing = false
         let nsError = error as NSError
         let message: String
         if nsError.domain == SCStreamErrorDomain, nsError.code == SCStreamError.Code.userDeclined.rawValue {
@@ -254,32 +225,6 @@ final class CaptureController: NSObject {
             fail(NSError(domain: SCStreamErrorDomain, code: SCStreamError.Code.userStopped.rawValue))
         @unknown default:
             break
-        }
-    }
-}
-
-extension CaptureController: SCContentSharingPickerObserver {
-    nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
-        let streamID = stream.map(ObjectIdentifier.init)
-        Task { @MainActor [weak self] in self?.select(filter, for: streamID) }
-    }
-
-    nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
-        let streamID = stream.map(ObjectIdentifier.init)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            if let streamID, streamID != self.stream.map(ObjectIdentifier.init) { return }
-            isChoosing = false
-            if self.stream == nil { self.picker.isActive = false }
-        }
-    }
-
-    nonisolated func contentSharingPickerStartDidFailWithError(_ error: Error) {
-        Task { @MainActor [weak self] in
-            guard let self, !isShuttingDown else { return }
-            isChoosing = false
-            if stream == nil { picker.isActive = false }
-            onPickerFailure?(error)
         }
     }
 }

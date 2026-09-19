@@ -21,6 +21,7 @@
 Keep API docs beside your code, a diagram over your notes, or a checklist above your work—without rearranging your whole desktop.
 
 - **Always visible.** A floating live preview across Spaces, with support for native fullscreen workspaces.
+- **One preview per window.** Add multiple references, each with its own position, opacity, controls, and capture stream.
 - **Click through.** Click, scroll, and select text in the window underneath the picture.
 - **Controls when you need them.** Hover for Return to App, Stop, window selection, and opacity.
 - **Back to the original.** Return to the source app and the preview gets out of the way. Switch away and it returns in place.
@@ -47,11 +48,12 @@ The app lives in your menu bar: look for the **pin**. There is no Dock icon.
 | --- | --- |
 | Work underneath the preview | Click, drag, or scroll on the picture; events pass through. |
 | Edit the source document | Hover and click **Return to App**. |
+| Keep another reference visible | Choose **Add Window…** from the menu bar, then share another window. |
 | Move or resize | Drag the left grip or the handle at the bottom-right corner. |
 | Change opacity | Use the hover slider or the menu bar presets. |
-| Choose a different window | Click the overlapping-window button or **Choose Window…** in the menu. |
-| Recover your layout | Choose **Reset Preview Size** in the menu. |
-| Finish | Click **Stop**. Use **Quit OnTop** to exit completely. |
+| Replace one source | Click its overlapping-window button or **Choose another window** in that preview's menu. |
+| Recover a layout | Open the preview's submenu and choose **Reset Preview Size**. |
+| Finish | **Stop** closes that preview. **Stop All** closes every preview. **Quit OnTop** exits. |
 
 OnTop shows a **live mirror**, not an interactive copy of the source app. Mouse events go to whatever window is actually underneath; they are not forwarded to the captured document.
 
@@ -67,8 +69,8 @@ OnTop shows a **live mirror**, not an interactive copy of the source app. Mouse 
 <details>
 <summary><strong>A few things to know</strong></summary>
 
-- One reference window at a time, at up to 15 fps. It is designed for documents and reference material.
-- If the source app is already active when you choose it, switch to another app to see the preview. Using any window of that source app hides the preview. Which original window is raised is controlled by the source app.
+- Add references one at a time with the system picker; each gets an independent preview at up to 15 fps. More shared windows use more CPU/GPU resources.
+- If the source app is already active when you choose it, switch to another app to see its previews. Using any window of that source app hides all previews from that app; references from other apps stay visible. Which original window is raised is controlled by the source app.
 - Minimized windows, sleeping apps, or protected content may pause or prevent capture. OnTop keeps the last available frame when possible.
 - Spaces and native fullscreen are supported; exclusive fullscreen apps and system UI can impose their own window-ordering rules.
 - Closing or stopping a preview stops capture. Choosing a new source after relaunch requires the system picker again.

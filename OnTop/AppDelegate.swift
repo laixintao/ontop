@@ -3,45 +3,21 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
-    private var selectItem: NSMenuItem!
-    private var stopItem: NSMenuItem!
-    private var resetItem: NSMenuItem!
-    private var opacityItems: [NSMenuItem] = []
-    private let preview = PreviewPanelController()
-    private let capture = CaptureController()
+    private let pins = PinManager()
     private var isQuitting = false
     private var activationObserver: NSObjectProtocol?
-    private var frontmostApplicationPID: pid_t?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        createMenu()
-        observeApplicationActivation()
-
-        preview.onChooseWindow = { [weak self] in self?.capture.chooseWindow() }
-        preview.onActivateSource = { [weak self] in self?.capture.activateSourceApplication() }
-        preview.onClose = { [weak self] in self?.capture.stop() }
-        preview.onResize = { [weak self] size, scale in
-            self?.capture.resize(to: size, scale: scale)
-        }
-        capture.onFrame = { [weak self] frame in self?.preview.display(frame) }
-        capture.onReset = { [weak self] in self?.preview.clear() }
-        capture.onSelection = { [weak self] size, title, canActivateSource in
-            guard let self else { return }
-            refreshPreviewVisibility()
-            preview.show(sourceSize: size, title: title, canActivateSource: canActivateSource)
-        }
-        capture.onStateChange = { [weak self] state in
-            guard let self else { return }
-            preview.setState(state)
-            stopItem.isEnabled = state != .idle
-            resetItem.isEnabled = state != .idle
-            refreshPreviewVisibility()
-        }
-        capture.onPickerVisibilityChange = { [weak self] isChoosing in
-            self?.selectItem.isEnabled = !isChoosing
-            self?.preview.setChoosing(isChoosing)
-        }
-        capture.onPickerFailure = { error in
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "OnTop")
+        image?.isTemplate = true
+        statusItem.button?.image = image
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.delegate = self
+        statusItem.menu = menu
+        pins.onChange = { [weak self] in self?.updateStatus() }
+        pins.onPickerFailure = { error in
             let alert = NSAlert()
             alert.messageText = NSLocalizedString("Couldn't open the window picker", comment: "Picker error")
             alert.informativeText = error.localizedDescription
@@ -49,112 +25,108 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
         }
-
-        // Wait until the menu bar item is installed before presenting system UI.
-        DispatchQueue.main.async { [weak self] in self?.capture.chooseWindow() }
-    }
-
-    private func observeApplicationActivation() {
         let workspace = NSWorkspace.shared
-        frontmostApplicationPID = workspace.frontmostApplication?.processIdentifier
+        pins.setFrontmostApplication(workspace.frontmostApplication?.processIdentifier)
         activationObserver = workspace.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] notification in
             let processID = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
             MainActor.assumeIsolated {
-                guard let self else { return }
-                // Use the notification's app: frontmostApplication may still
-                // describe the previous app during an activation transition.
-                self.frontmostApplicationPID = processID ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
-                self.refreshPreviewVisibility()
+                self?.pins.setFrontmostApplication(processID ?? NSWorkspace.shared.frontmostApplication?.processIdentifier)
             }
         }
+        updateStatus()
+        menuWillOpen(menu)
+        DispatchQueue.main.async { [weak self] in self?.pins.chooseWindow() }
     }
 
-    private func refreshPreviewVisibility() {
+    private func updateStatus() {
         guard !isQuitting else { return }
-        let sourcePID = capture.sourceApplicationProcessIdentifier
-        let sourceIsActive = sourcePID != nil && sourcePID == frontmostApplicationPID
-        preview.setSourceApplicationActive(sourceIsActive)
-        if capture.state == .idle {
+        if pins.windows.isEmpty {
             statusItem.button?.toolTip = NSLocalizedString("OnTop — pin a window preview", comment: "Menu bar tooltip")
-        } else if sourceIsActive {
-            statusItem.button?.toolTip = NSLocalizedString("OnTop — preview returns when you switch apps", comment: "Menu bar tooltip")
         } else {
-            statusItem.button?.toolTip = NSLocalizedString("OnTop — preview is open", comment: "Menu bar tooltip")
+            statusItem.button?.toolTip = String(format: NSLocalizedString("OnTop — %d pinned windows", comment: "Menu bar tooltip"), pins.windows.count)
         }
     }
 
-    private func createMenu() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        let image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "OnTop")
-        image?.isTemplate = true
-        statusItem.button?.image = image
-        statusItem.button?.toolTip = NSLocalizedString("OnTop — pin a window preview", comment: "Menu bar tooltip")
-
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        selectItem = NSMenuItem(title: NSLocalizedString("Choose Window…", comment: "Menu item"),
-                                action: #selector(chooseWindow), keyEquivalent: "o")
-        stopItem = NSMenuItem(title: NSLocalizedString("Stop Pinning", comment: "Menu item"),
-                              action: #selector(stopPinning), keyEquivalent: "w")
-        stopItem.isEnabled = false
-        let quitItem = NSMenuItem(title: NSLocalizedString("Quit OnTop", comment: "Menu item"),
-                                  action: #selector(quit), keyEquivalent: "q")
-        for item in [selectItem!, stopItem!, quitItem] { item.target = self }
-        menu.addItem(selectItem)
-        menu.addItem(stopItem)
-        resetItem = NSMenuItem(title: NSLocalizedString("Reset Preview Size", comment: "Menu item"),
-                               action: #selector(resetPreviewSize), keyEquivalent: "0")
-        resetItem.target = self
-        resetItem.isEnabled = false
-        menu.addItem(resetItem)
-        let opacityItem = NSMenuItem(title: NSLocalizedString("Opacity", comment: "Menu item"), action: nil, keyEquivalent: "")
-        let opacityMenu = NSMenu()
-        opacityMenu.delegate = self
-        for percent in [100, 85, 70, 50, 30] {
-            let item = NSMenuItem(title: "\(percent)%", action: #selector(changeOpacity(_:)), keyEquivalent: "")
-            item.tag = percent
-            item.target = self
-            opacityMenu.addItem(item)
-            opacityItems.append(item)
-        }
-        opacityItem.submenu = opacityMenu
-        menu.addItem(opacityItem)
-        menu.addItem(.separator())
-        menu.addItem(quitItem)
-        statusItem.menu = menu
-    }
-
-    @objc private func chooseWindow() { capture.chooseWindow() }
-    @objc private func resetPreviewSize() { preview.resetSize() }
-    @objc private func changeOpacity(_ sender: NSMenuItem) { preview.setOpacity(Double(sender.tag) / 100) }
     func menuWillOpen(_ menu: NSMenu) {
-        for item in opacityItems { item.state = abs(Double(item.tag) / 100 - preview.opacity) < 0.005 ? .on : .off }
+        menu.removeAllItems()
+        func item(_ title: String, action: Selector, key: String = "", window: PinnedWindow? = nil) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.target = self
+            item.representedObject = window?.id
+            return item
+        }
+        let add = item(NSLocalizedString("Add Window…", comment: "Menu item"), action: #selector(addWindow), key: "o")
+        add.isEnabled = !pins.isChoosing
+        menu.addItem(add)
+        if !pins.windows.isEmpty { menu.addItem(.separator()) }
+        for window in pins.windows {
+            let title = window.title.count > 52 ? String(window.title.prefix(49)) + "…" : window.title
+            let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            parent.toolTip = window.title
+            let submenu = NSMenu()
+            submenu.autoenablesItems = false
+            let back = item(NSLocalizedString("Return to App", comment: "Preview control"), action: #selector(returnToApp(_:)), window: window)
+            back.isEnabled = window.capture.sourceApplicationProcessIdentifier != nil && (window.capture.state == .live || window.capture.state == .paused)
+            submenu.addItem(back)
+            let choose = item(NSLocalizedString("Choose another window", comment: "Preview control"), action: #selector(replaceWindow(_:)), window: window)
+            choose.isEnabled = !pins.isChoosing
+            submenu.addItem(choose)
+            let opacity = NSMenuItem(title: NSLocalizedString("Opacity", comment: "Menu item"), action: nil, keyEquivalent: "")
+            let opacityMenu = NSMenu()
+            for percent in [100, 85, 70, 50, 30] {
+                let option = item("\(percent)%", action: #selector(changeOpacity(_:)), window: window)
+                option.tag = percent
+                option.state = abs(Double(percent) / 100 - window.preview.opacity) < 0.005 ? .on : .off
+                opacityMenu.addItem(option)
+            }
+            opacity.submenu = opacityMenu
+            submenu.addItem(opacity)
+            submenu.addItem(item(NSLocalizedString("Reset Preview Size", comment: "Menu item"), action: #selector(resetWindow(_:)), window: window))
+            submenu.addItem(.separator())
+            submenu.addItem(item(NSLocalizedString("Stop Pinning", comment: "Menu item"), action: #selector(stopWindow(_:)), window: window))
+            parent.submenu = submenu
+            menu.addItem(parent)
+        }
+        menu.addItem(.separator())
+        let stop = item(NSLocalizedString("Stop All", comment: "Menu item"), action: #selector(stopAll), key: "w")
+        stop.keyEquivalentModifierMask = [.command, .shift]
+        stop.isEnabled = !pins.windows.isEmpty || pins.isChoosing
+        menu.addItem(stop)
+        menu.addItem(item(NSLocalizedString("Quit OnTop", comment: "Menu item"), action: #selector(quit), key: "q"))
     }
 
-    @objc private func stopPinning() {
-        preview.close()
-        capture.stop()
+    private func window(for sender: NSMenuItem) -> PinnedWindow? {
+        (sender.representedObject as? UUID).flatMap { pins.window(id: $0) }
     }
-
+    @objc private func addWindow() { pins.chooseWindow() }
+    @objc private func replaceWindow(_ sender: NSMenuItem) {
+        if let window = window(for: sender) { pins.chooseWindow(replacing: window.id) }
+    }
+    @objc private func returnToApp(_ sender: NSMenuItem) { window(for: sender)?.capture.activateSourceApplication() }
+    @objc private func resetWindow(_ sender: NSMenuItem) { window(for: sender)?.preview.resetSize() }
+    @objc private func changeOpacity(_ sender: NSMenuItem) { window(for: sender)?.preview.setOpacity(Double(sender.tag) / 100) }
+    @objc private func stopWindow(_ sender: NSMenuItem) {
+        if let window = window(for: sender) { pins.stop(id: window.id) }
+    }
+    @objc private func stopAll() { pins.stopAll() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !isQuitting { capture.chooseWindow() }
+        if !isQuitting { pins.chooseWindow() }
         return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isQuitting else { return .terminateLater }
         isQuitting = true
-        preview.close()
         if let activationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(activationObserver)
             self.activationObserver = nil
         }
         Task { @MainActor in
-            await capture.shutdown()
+            await pins.shutdown()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

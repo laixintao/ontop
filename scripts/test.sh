@@ -16,7 +16,7 @@ xcrun swiftc -swift-version 5 -strict-concurrency=complete -warnings-as-errors -
     -target "$(uname -m)-apple-macosx14.0" \
     -sdk "$(xcrun --show-sdk-path)" \
     -module-cache-path build/ModuleCache \
-    OnTop/CaptureController.swift OnTop/PreviewPanelController.swift OnTop/FrameRenderer.swift Tests/SmokeTests.swift \
+    OnTop/CaptureController.swift OnTop/PinManager.swift OnTop/PreviewPanelController.swift OnTop/FrameRenderer.swift Tests/SmokeTests.swift \
     -o "$TEST_APP/Contents/MacOS/OnTopSmokeTests"
 
 codesign --force --sign - "$TEST_APP"
