@@ -30,6 +30,16 @@
 
 ## 安装
 
+通过 [Homebrew](https://brew.sh) 安装：
+
+```bash
+brew install --cask laixintao/tap/ontop
+```
+
+更新时先运行 `brew update`，再运行 `brew upgrade --cask laixintao/tap/ontop`。
+
+也可以手动安装：
+
 1. [下载最新通用版 DMG](https://github.com/laixintao/ontop/releases/latest)。
 2. 打开后把 **OnTop** 拖入 **Applications（应用程序）**。
 3. 启动 OnTop，在 macOS 系统选择器中选择窗口并确认共享。

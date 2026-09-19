@@ -30,6 +30,16 @@ Keep API docs beside your code, a diagram over your notes, or a checklist above 
 
 ## Install
 
+Install with [Homebrew](https://brew.sh):
+
+```bash
+brew install --cask laixintao/tap/ontop
+```
+
+To update, run `brew update` followed by `brew upgrade --cask laixintao/tap/ontop`.
+
+Or install manually:
+
 1. [Download the latest universal DMG](https://github.com/laixintao/ontop/releases/latest).
 2. Open it and drag **OnTop** into **Applications**.
 3. Launch OnTop, select a window in the macOS picker, and confirm sharing.
