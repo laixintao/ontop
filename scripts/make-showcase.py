@@ -2,9 +2,13 @@
 """Generate the README illustration from original sample content and real controls."""
 import base64
 from pathlib import Path
+import struct
 
 ROOT = Path(__file__).resolve().parent.parent
-controls = base64.b64encode((ROOT / "docs/assets/controls-en.png").read_bytes()).decode()
+control_png = (ROOT / "docs/assets/controls-en.png").read_bytes()
+control_pixels = struct.unpack(">II", control_png[16:24])
+control_width = control_pixels[0] / control_pixels[1] * 44
+controls = base64.b64encode(control_png).decode()
 svg = '''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="700" viewBox="0 0 1280 700" role="img" aria-labelledby="title desc">
 <title id="title">Keep your reference. Keep your flow.</title>
 <desc id="desc">An illustrated desktop with a release checklist floating over a draft. OnTop's real hover controls sit above the checklist. Sample content, not a screen capture.</desc>
@@ -60,7 +64,7 @@ svg = '''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/
     <text x="832" y="453" font-size="15" font-weight="600" fill="#495571">Write the announcement</text>
     <text x="797" y="491" font-size="11" fill="#a0a8bb">A live preview of the window you choose</text>
   </g>
-  <g filter="url(#smallShadow)"><image x="788" y="151" width="400" height="44" xlink:href="data:image/png;base64,CONTROLS"/></g>
+  <g filter="url(#smallShadow)"><image x="CONTROL_X" y="153" width="CONTROL_WIDTH" height="44" xlink:href="data:image/png;base64,CONTROLS"/></g>
   <path d="M961 124V141" stroke="#858bc3" stroke-width="1.5" stroke-linecap="round"/>
   <text x="961" y="112" text-anchor="middle" font-size="13" fill="#747ca3">Hover for controls</text>
 
@@ -76,5 +80,5 @@ svg = '''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/
 </svg>
 '''
 target = ROOT / "docs/assets/hero.svg"
-target.write_text(svg.replace("CONTROLS", controls))
+target.write_text(svg.replace("CONTROLS", controls).replace("CONTROL_WIDTH", str(control_width)).replace("CONTROL_X", str(988 - control_width / 2)))
 print(f"Wrote {target.relative_to(ROOT)}")

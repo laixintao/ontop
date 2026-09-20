@@ -20,6 +20,7 @@ enum SmokeTests {
             do {
                 try FileManager.default.createDirectory(at: qa, withIntermediateDirectories: true)
                 try resourcesAndSizing()
+                try chromeGeometry()
                 try cropping()
                 try await interactionAndRendering()
                 try await pointerLifecycle()
@@ -61,7 +62,7 @@ enum SmokeTests {
         }
         let en = try strings("en"), zh = try strings("zh-Hans")
         try check(Set(en.keys) == Set(zh.keys), "Translation keys must match")
-        for key in ["Return to App", "Stop", "Opacity", "Drag to resize", "Drag to move", "Reset Preview Size"] {
+        for key in ["Return to App", "Stop", "Hide", "Hide Preview", "Show Preview", "Show All Previews", "Opacity", "Drag to resize", "Drag to move", "Reset Preview Size"] {
             try check(en[key]?.isEmpty == false && zh[key]?.isEmpty == false, "Missing translation: \(key)")
         }
         let screen = CGSize(width: 1440, height: 900)
@@ -80,6 +81,22 @@ enum SmokeTests {
         try check(PreviewSizing.pixelSize(for: CGSize(width: 481, height: 301), scale: 1) == CGSize(width: 482, height: 302), "Even capture dimensions")
         try check(PreviewSizing.pixelSize(for: .zero, scale: .nan) == CGSize(width: 2, height: 2), "Safe invalid geometry")
         try check(PreviewSizing.pixelSize(for: CGSize(width: 20000, height: 20000), scale: 2) == CGSize(width: 8192, height: 8192), "Bounded capture dimensions")
+    }
+
+    private static func chromeGeometry() throws {
+        let controls = CGSize(width: 480, height: 44), handle = CGSize(width: 24, height: 24)
+        for screen in [CGRect(x: 16, y: 16, width: 1408, height: 840), CGRect(x: -1550, y: -400, width: 1000, height: 700), CGRect(x: 16, y: 16, width: 768, height: 550)] {
+            let content = PreviewChromeLayout.contentArea(in: screen, toolbarHeight: controls.height, resizeWidth: handle.width)
+            for source in [CGSize(width: 480, height: 300), CGSize(width: 100, height: 1200), CGSize(width: 5000, height: 80)] {
+                for origin in [CGPoint(x: screen.minX - 1000, y: screen.minY - 1000), CGPoint(x: screen.maxX + 1000, y: screen.maxY + 1000)] {
+                    let picture = PreviewSizing.constrained(CGRect(origin: origin, size: source), to: content)
+                    let chrome = PreviewChromeLayout.frames(picture: picture, controls: controls, resize: handle, screen: screen)
+                    try check(chrome.toolbar.minY > picture.maxY, "Toolbar must stay strictly above the entire picture")
+                    try check(!chrome.handle.intersects(picture), "Resize handle must stay outside the picture")
+                    try check(screen.contains(chrome.toolbar) && screen.contains(chrome.handle), "Chrome must remain on-screen at every edge, aspect ratio, and display origin")
+                }
+            }
+        }
     }
 
     private static func cropping() throws {
@@ -152,9 +169,16 @@ enum SmokeTests {
         try check(preview.isChromeVisible && preview.controlsPanel.isVisible && preview.resizePanel.isVisible, "Hover must reveal controls")
         try check(preview.panel.ignoresMouseEvents && !preview.controlsPanel.ignoresMouseEvents, "Only the controls may intercept clicks")
         try check(preview.panel.frame == original && viewport == original.size, "Hover must not resize content")
-        preview.updateHover(at: CGPoint(x: -10000, y: -10000), now: 2.1)
+        try check(preview.controlsPanel.frame.minY > original.maxY && !preview.resizePanel.frame.intersects(original), "All hover buttons and handles must stay outside the reference picture")
+        let hoverBridge = CGPoint(x: original.midX, y: original.maxY + 3)
+        preview.updateHover(at: hoverBridge, now: 3)
+        preview.updateHover(at: hoverBridge, now: 4)
+        try check(preview.isChromeVisible, "Slowly crossing the gap to the toolbar must not hide it")
+        preview.updateHover(at: CGPoint(x: preview.controlsPanel.frame.midX, y: preview.controlsPanel.frame.midY), now: 5)
+        try check(preview.isChromeVisible, "The detached toolbar must remain hoverable")
+        preview.updateHover(at: CGPoint(x: -10000, y: -10000), now: 5.1)
         try check(preview.isChromeVisible, "Brief pointer departures must not flicker the controls")
-        preview.updateHover(at: CGPoint(x: -10000, y: -10000), now: 2.4)
+        preview.updateHover(at: CGPoint(x: -10000, y: -10000), now: 5.4)
         try check(!preview.isChromeVisible && !preview.controlsPanel.isVisible, "Controls must hide after leaving")
         preview.setChromeVisible(true)
         try check(!preview.returnButton.isEnabled, "Cannot return before the source is live")
@@ -204,6 +228,10 @@ enum SmokeTests {
         }
         try check(NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0) == underneath.windowNumber,
                   "Hovering must not turn the picture into an input blocker")
+        for picturePoint in [CGPoint(x: original.midX, y: original.maxY - 12), CGPoint(x: original.maxX - 12, y: original.minY + 12)] {
+            try check(NSWindow.windowNumber(at: picturePoint, belowWindowWithWindowNumber: 0) == underneath.windowNumber,
+                      "The former toolbar and resize-handle areas must now pass clicks through")
+        }
 
         // Deliver a real down/up pair through AppKit, not just performClick.
         let location = preview.controlsPanel.convertPoint(fromScreen: buttonPoint)
@@ -339,8 +367,28 @@ enum SmokeTests {
         try check(preview.isTrackingPointer, "Restore hover observation with the preview")
         preview.resetSize()
         try check(near(preview.panel.frame.width, 480), "Menu reset recovers the default usable size")
+        let savedFrame = preview.panel.frame
+        preview.setChromeVisible(true)
+        preview.hideButton.performClick(nil)
+        try check(preview.isTemporarilyHidden && !preview.isTrackingPointer && !preview.panel.isVisible && !preview.controlsPanel.isVisible && !preview.resizePanel.isVisible, "Hide must remove all display surfaces and stop pointer polling")
+        for _ in 0..<3 {
+            preview.setSourceApplicationActive(true)
+            preview.setSourceApplicationActive(false)
+            try check(!preview.panel.isVisible && preview.isTemporarilyHidden, "App switches must not undo a manual hide")
+        }
+        preview.setSourceApplicationActive(true)
+        preview.setTemporarilyHidden(false)
+        try check(!preview.panel.isVisible && !preview.isTemporarilyHidden, "Showing a manually hidden preview still respects active source visibility")
+        preview.setSourceApplicationActive(false)
+        try check(preview.panel.isVisible && preview.isTrackingPointer && preview.panel.frame == savedFrame, "Restore must resume tracking at the same size and position")
+        preview.setTemporarilyHidden(true)
+        preview.show(sourceSize: CGSize(width: 800, height: 500), title: "Explicit new source")
+        try check(!preview.isTemporarilyHidden && preview.panel.isVisible, "Explicitly replacing a hidden source makes the new preview available")
+        preview.setTemporarilyHidden(true)
         preview.close()
+        preview.setTemporarilyHidden(false)
         try check(!preview.isTrackingPointer && !preview.controlsPanel.isVisible, "Stop releases hover timer and controls")
+        try check(!preview.panel.isVisible, "A stopped hidden preview must not be resurrected by Show")
     }
 
     @MainActor
@@ -392,6 +440,11 @@ enum SmokeTests {
         try check(first.preview.panel !== second.preview.panel && first.preview.panel.isVisible && second.preview.panel.isVisible, "Both native preview windows must be visible")
         try check(first.preview.panel.frame != second.preview.panel.frame, "New preview slots must not stack in exactly the same position")
         try check(first.preview.panel.ignoresMouseEvents && second.preview.panel.ignoresMouseEvents, "Every picture remains click-through")
+        // Small displays may need cascading pictures. Where tiling fits, leave
+        // room for the external controls between the two reference windows.
+        if !first.preview.panel.frame.intersects(second.preview.panel.frame) {
+            try check(!first.preview.controlsPanel.frame.intersects(second.preview.panel.frame) && !second.preview.controlsPanel.frame.intersects(first.preview.panel.frame), "Initial tiling must leave room for each preview's external toolbar")
+        }
         let firstFrame = first.preview.panel.frame
         let secondFrame = second.preview.panel.frame
         first.preview.setOpacity(0.4)
@@ -400,6 +453,19 @@ enum SmokeTests {
         try check(near(defaults.double(forKey: "previewOpacity"), 0.4) && near(defaults.double(forKey: "preview.1.previewOpacity"), 0.85), "Settings must persist separately per preview slot")
         first.preview.returnButton.performClick(nil)
         try check(captures[0].activations == 1 && captures[1].activations == 0, "Return must activate only the selected source")
+        first.preview.setChromeVisible(true)
+        first.preview.hideButton.performClick(nil)
+        try check(!first.preview.panel.isVisible && second.preview.panel.isVisible && pins.windows.count == 2, "Hide must affect only one preview and keep its session")
+        try check(captures[0].stops == 0 && captures[0].state == .live && SCContentSharingPicker.shared.isActive, "Hiding must preserve the stream and system sharing authorization")
+        captures[0].onFrame?(try makeFrame())
+        captures[0].state = .paused
+        captures[0].state = .live
+        pins.setFrontmostApplication(1003)
+        try check(first.preview.isTemporarilyHidden && !first.preview.panel.isVisible, "Incoming frames and stream state changes must not restore a manually hidden preview")
+        second.preview.setTemporarilyHidden(true)
+        pins.showAllPreviews()
+        try check(first.preview.panel.isVisible && second.preview.panel.isVisible && first.preview.panel.frame == firstFrame && second.preview.panel.frame == secondFrame, "Show All restores independent frames without choosing sources again")
+        try check(near(first.preview.opacity, 0.4) && near(second.preview.opacity, 0.85), "Hide and Show All must preserve each opacity")
         for _ in 0..<10 {
             pins.setFrontmostApplication(1001)
             try check(!first.preview.panel.isVisible && second.preview.panel.isVisible, "Using source A must leave source B visible")
@@ -437,6 +503,11 @@ enum SmokeTests {
         first.preview.updateHover(at: point)
         second.preview.updateHover(at: point)
         try check(!first.preview.isChromeVisible && second.preview.isChromeVisible, "Overlapping previews must not expose competing hover controls")
+        let bridge = CGPoint(x: second.preview.panel.frame.midX, y: second.preview.panel.frame.maxY + 3)
+        try check(pins.hoverOwner(at: bridge) === second, "Multi-window hover routing must include the toolbar gap")
+        second.preview.updateHover(at: bridge, now: 100)
+        second.preview.updateHover(at: bridge, now: 101)
+        try check(second.preview.isChromeVisible, "Crossing to detached controls must remain stable with overlapping previews")
         try snapshot(second.preview.controlsPanel.contentView!, name: "multiwindow-controls.png")
         second.preview.resetSize()
 
@@ -468,6 +539,7 @@ enum SmokeTests {
         try check(third.slot == 0 && near(third.preview.opacity, 0.4), "Reuse a freed preference slot without overwriting another window's settings")
         second.preview.stopButton.performClick(nil)
         try check(pins.windows.count == 1 && pins.windows.first === third && captures[2].stops == 0, "A preview's Stop button closes only that preview")
+        third.preview.setTemporarilyHidden(true)
         pins.stopAll()
         try check(pins.windows.isEmpty && !SCContentSharingPicker.shared.isActive, "Stop All ends all previews and deactivates the picker")
         try check(pins.destination(for: nil, sourceWindowID: 106) == nil, "Late new-share callbacks after Stop All cannot recreate previews")

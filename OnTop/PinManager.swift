@@ -159,6 +159,7 @@ final class PinManager: NSObject {
             self?.stop(id: window.id)
         }
         preview.onResize = { [weak capture] size, scale in capture?.resize(to: size, scale: scale) }
+        preview.onVisibilityChange = { [weak self] in self?.onChange?() }
         preview.shouldRevealControls = { [weak self, weak window] point in
             guard let self, let window else { return false }
             return hoverOwner(at: point) === window
@@ -188,7 +189,9 @@ final class PinManager: NSObject {
                 .filter { $0.isVisible && $0.frame.contains(point) }
                 .map { (panel: $0, owner: window) }
         }
-        guard let first = candidates.first else { return nil }
+        guard let first = candidates.first else {
+            return windows.first { $0.preview.isChromeVisible && $0.preview.containsHoverPoint(point) }
+        }
         if candidates.allSatisfy({ $0.owner === first.owner }) { return first.owner }
         // Only query stacking when previews overlap; only our own window IDs
         // are needed, never other apps' metadata, pixels, or event monitoring.
@@ -206,6 +209,10 @@ final class PinManager: NSObject {
         onChange?()
     }
 
+    func showAllPreviews() {
+        for window in windows { window.preview.setTemporarilyHidden(false) }
+    }
+
     private func refreshVisibility() {
         guard !isShuttingDown else { return }
         for window in windows {
@@ -218,6 +225,7 @@ final class PinManager: NSObject {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
         let window = windows.remove(at: index)
         window.preview.onClose = nil
+        window.preview.onVisibilityChange = nil
         window.preview.close()
         let capture = window.capture
         capture.onFrame = nil

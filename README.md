@@ -23,7 +23,8 @@ Keep API docs beside your code, a diagram over your notes, or a checklist above 
 - **Always visible.** A floating live preview across Spaces, with support for native fullscreen workspaces.
 - **One preview per window.** Add multiple references, each with its own position, opacity, controls, and capture stream.
 - **Click through.** Click, scroll, and select text in the window underneath the picture.
-- **Controls when you need them.** Hover for Return to App, Stop, window selection, and opacity.
+- **Controls above the picture.** Hover for Return to App, Hide, Stop, window selection, and opacity. The toolbar floats outside the image, so your reference stays unobstructed.
+- **Hide without losing your place.** Temporarily hide a preview while keeping it shared, then restore it from the menu bar.
 - **Back to the original.** Return to the source app and the preview gets out of the way. Switch away and it returns in place.
 - **Make it fit.** Adjust opacity from 30–100%, move with the grip, and resize without stretching. Your layout and opacity are remembered.
 - **Native and local.** Swift, AppKit, and ScreenCaptureKit. No account, analytics, network calls, or third-party app dependencies.
@@ -52,14 +53,16 @@ Apple Silicon and Intel use the same download. A ZIP is also available.
 
 The app lives in your menu bar: look for the **pin**. There is no Dock icon.
 
-![OnTop’s actual English hover controls: move, Return to App, Stop, choose window, and opacity.](docs/assets/controls-en.png)
+![OnTop’s actual English hover controls: move, Return to App, Hide, Stop, choose window, and opacity.](docs/assets/controls-en.png)
 
 | What you want | What to do |
 | --- | --- |
 | Work underneath the preview | Click, drag, or scroll on the picture; events pass through. |
 | Edit the source document | Hover and click **Return to App**. |
 | Keep another reference visible | Choose **Add Window…** from the menu bar, then share another window. |
-| Move or resize | Drag the left grip or the handle at the bottom-right corner. |
+| Move or resize | Drag the toolbar's left grip or the handle just outside the picture's bottom-right edge. |
+| Temporarily hide a reference | Click **Hide**. Sharing continues, and app switches keep it hidden. |
+| Restore hidden references | Choose **Show Preview** in that window's menu, or **Show All Previews**. |
 | Change opacity | Use the hover slider or the menu bar presets. |
 | Replace one source | Click its overlapping-window button or **Choose another window** in that preview's menu. |
 | Recover a layout | Open the preview's submenu and choose **Reset Preview Size**. |
@@ -81,6 +84,7 @@ OnTop shows a **live mirror**, not an interactive copy of the source app. Mouse 
 
 - Add references one at a time with the system picker; each gets an independent preview at up to 15 fps. More shared windows use more CPU/GPU resources.
 - If the source app is already active when you choose it, switch to another app to see its previews. Using any window of that source app hides all previews from that app; references from other apps stay visible. Which original window is raised is controlled by the source app.
+- **Hide** lasts until you restore the preview or explicitly replace its source. It preserves sharing, layout, and opacity. Restoring still respects source-app hiding; switch away from the source app to see it.
 - Minimized windows, sleeping apps, or protected content may pause or prevent capture. OnTop keeps the last available frame when possible.
 - Spaces and native fullscreen are supported; exclusive fullscreen apps and system UI can impose their own window-ordering rules.
 - Closing or stopping a preview stops capture. Choosing a new source after relaunch requires the system picker again.
@@ -108,7 +112,7 @@ open build/Release/OnTop.app
 | `./scripts/ci.sh` | Project checks, tests, packaging, and installer verification |
 | `make release` | Bump patch version, commit, tag, and push; CI builds and publishes |
 
-Maintainers can use `make release VERSION=1.2.0` for a specific version. See the [release guide](docs/RELEASING.md) for requirements, curated notes, and recovery from a failed push.
+Maintainers can use `make release VERSION=1.4.0` for a specific version. See the [release guide](docs/RELEASING.md) for requirements, curated notes, and recovery from a failed push.
 
 The automated suite checks real window hit testing, native button clicks, crop pixels at 1×/2×/3×, opacity, geometry, and repeated app switching. CI runs on Apple Silicon and Intel. Version tags run the same checks before publishing a release with checksums and GitHub build provenance.
 

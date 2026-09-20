@@ -34,6 +34,8 @@ Quit a running development app before replacing its bundle. A new launch needs a
 
 The picture window always ignores mouse events. Controls are independent nonactivating panels, so making them visible never turns the picture into an input blocker. Hover reads the pointer location at 20 Hz only while the preview is visible; it needs no global event tap.
 
+The toolbar sits above the picture and the resize handle sits to its right. Layout reserves screen space for both even when they are hidden, so hovering never moves or shrinks the picture. Hover corridors bridge the gaps without intercepting clicks. Temporary hiding is independent of source-app activation: it hides all preview panels and stops pointer polling, while capture continues. Only an explicit restore or source change clears it.
+
 Each selection creates a separate capture/preview pair. Picker callbacks carrying a stream update only that pair; nil-stream selections add a reference. On macOS 15.2+, window IDs prevent duplicate references. Per-slot layout/opacity persist independently; new slots start tiled. Overlapping previews resolve hover through AppKit's own window-number list. Using a source app hides only its previews. One stream failing or stopping never deactivates the others' shared picker.
 
 Capture uses a maximum of 15 fps and three queued frames. Ordinary frames remain zero-copy; frames with padding take the Core Image crop path. Cropping follows ScreenCaptureKit metadata, not pixel color. `contentRect` is measured in surface points; `scaleFactor` converts it to pixels. `contentScale` has already been applied and must not shrink it a second time.
@@ -69,6 +71,8 @@ Automated tests use synthetic frames. The real sharing picker and other apps sti
 - Choose a browser page or PDF. Read static text, scroll the original, and verify live updates.
 - Add a second window using **Add Window…**, including through macOS's sharing menu. Check independent content, move/resize/opacity, source switching, cancel/replace, and stopping just one preview. Repeat with two windows from the same app.
 - Work through the preview: click, scroll, and select text underneath it. Hover controls should remain usable without taking keyboard focus.
+- Move the preview to each screen edge and across displays. Check that controls stay outside the picture and remain visible while crossing the gaps.
+- Hide one preview, switch apps, and verify it stays hidden while other previews continue. Restore it from its menu or **Show All Previews**; position, size, and opacity should be preserved.
 - Return to the source app, switch away repeatedly, and resize the original. Confirm no accumulating borders, scale drift, or duplicate previews.
 - Change opacity, move, resize, relaunch, and recover with **Reset Preview Size**.
 - Cancel a source change. Stop while hidden or while a stream is starting. Reselect afterward.

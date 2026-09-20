@@ -44,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !isQuitting else { return }
         if pins.windows.isEmpty {
             statusItem.button?.toolTip = NSLocalizedString("OnTop — pin a window preview", comment: "Menu bar tooltip")
+        } else if pins.windows.contains(where: { $0.preview.isTemporarilyHidden }) {
+            let hidden = pins.windows.filter { $0.preview.isTemporarilyHidden }.count
+            statusItem.button?.toolTip = String(format: NSLocalizedString("OnTop — %d pinned windows, %d hidden", comment: "Menu bar tooltip"), pins.windows.count, hidden)
         } else {
             statusItem.button?.toolTip = String(format: NSLocalizedString("OnTop — %d pinned windows", comment: "Menu bar tooltip"), pins.windows.count)
         }
@@ -65,8 +68,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let title = window.title.count > 52 ? String(window.title.prefix(49)) + "…" : window.title
             let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             parent.toolTip = window.title
+            if window.preview.isTemporarilyHidden {
+                parent.image = NSImage(systemSymbolName: "eye.slash", accessibilityDescription: NSLocalizedString("Hidden", comment: "Preview status"))
+            }
             let submenu = NSMenu()
             submenu.autoenablesItems = false
+            let visibilityTitle = window.preview.isTemporarilyHidden
+                ? NSLocalizedString("Show Preview", comment: "Menu item")
+                : NSLocalizedString("Hide Preview", comment: "Menu item")
+            submenu.addItem(item(visibilityTitle, action: #selector(togglePreviewVisibility(_:)), window: window))
             let back = item(NSLocalizedString("Return to App", comment: "Preview control"), action: #selector(returnToApp(_:)), window: window)
             back.isEnabled = window.capture.sourceApplicationProcessIdentifier != nil && (window.capture.state == .live || window.capture.state == .paused)
             submenu.addItem(back)
@@ -90,6 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(parent)
         }
         menu.addItem(.separator())
+        let showAll = item(NSLocalizedString("Show All Previews", comment: "Menu item"), action: #selector(showAllPreviews))
+        showAll.isEnabled = pins.windows.contains { $0.preview.isTemporarilyHidden }
+        menu.addItem(showAll)
         let stop = item(NSLocalizedString("Stop All", comment: "Menu item"), action: #selector(stopAll), key: "w")
         stop.keyEquivalentModifierMask = [.command, .shift]
         stop.isEnabled = !pins.windows.isEmpty || pins.isChoosing
@@ -111,6 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let window = window(for: sender) { pins.stop(id: window.id) }
     }
     @objc private func stopAll() { pins.stopAll() }
+    @objc private func togglePreviewVisibility(_ sender: NSMenuItem) {
+        if let window = window(for: sender) { window.preview.setTemporarilyHidden(!window.preview.isTemporarilyHidden) }
+    }
+    @objc private func showAllPreviews() { pins.showAllPreviews() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

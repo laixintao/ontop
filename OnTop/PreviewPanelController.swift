@@ -35,6 +35,25 @@ enum PreviewSizing {
     }
 }
 
+/// Keep interactive chrome outside the picture, with room reserved even while
+/// it is hidden so hovering never moves or resizes the reference.
+enum PreviewChromeLayout {
+    static let toolbarGap: CGFloat = 6
+    static let resizeGap: CGFloat = 4
+
+    static func contentArea(in screen: CGRect, toolbarHeight: CGFloat, resizeWidth: CGFloat) -> CGRect {
+        CGRect(x: screen.minX, y: screen.minY,
+               width: max(1, screen.width - resizeWidth - resizeGap),
+               height: max(1, screen.height - toolbarHeight - toolbarGap))
+    }
+
+    static func frames(picture: CGRect, controls: CGSize, resize: CGSize, screen: CGRect) -> (toolbar: CGRect, handle: CGRect) {
+        let x = min(max(picture.midX - controls.width / 2, screen.minX), max(screen.minX, screen.maxX - controls.width))
+        return (CGRect(x: x, y: picture.maxY + toolbarGap, width: controls.width, height: controls.height),
+                CGRect(x: picture.maxX + resizeGap, y: picture.minY, width: resize.width, height: resize.height))
+    }
+}
+
 private final class PreviewPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -95,6 +114,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     var onClose: (() -> Void)?
     var onResize: ((CGSize, CGFloat) -> Void)?
     var shouldRevealControls: ((CGPoint) -> Bool)?
+    var onVisibilityChange: (() -> Void)?
 
     let panel: NSPanel
     let controlsPanel: NSPanel
@@ -102,6 +122,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     let videoView = VideoView()
     let returnButton = PreviewButton()
     let stopButton = PreviewButton()
+    let hideButton = PreviewButton()
     let chooseButton = PreviewButton()
     let opacitySlider = NSSlider(value: 1, minValue: 0.3, maxValue: 1, target: nil, action: nil)
     let moveHandle = PreviewHandle(resize: false)
@@ -124,6 +145,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     private(set) var isChromeVisible = false
     private(set) var opacity: Double = 1
     private(set) var isTrackingPointer = false
+    private(set) var isTemporarilyHidden = false
 
     init(defaults: UserDefaults = .standard, tracksPointer: Bool = true, slot: Int = 0) {
         self.defaults = defaults
@@ -191,6 +213,9 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
             button.setAccessibilityLabel(button.title)
         }
         button(returnButton, title: "Return to App", symbol: "arrow.up.forward.app", action: #selector(returnToSource))
+        button(hideButton, title: "Hide", symbol: "eye.slash", action: #selector(hidePreview))
+        hideButton.toolTip = NSLocalizedString("Temporarily hide this preview. Restore it from the OnTop menu.", comment: "Hide preview help")
+        hideButton.setAccessibilityLabel(NSLocalizedString("Hide Preview", comment: "Menu item"))
         button(stopButton, title: "Stop", symbol: "stop.circle", action: #selector(stopPinning))
         button(chooseButton, title: "", symbol: "rectangle.on.rectangle", action: #selector(chooseWindow))
         chooseButton.toolTip = NSLocalizedString("Choose another window", comment: "Preview control")
@@ -207,7 +232,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         opacityLabel.textColor = .secondaryLabelColor
         let opacityIcon = NSImageView(image: NSImage(systemSymbolName: "circle.lefthalf.filled", accessibilityDescription: opacitySlider.toolTip)!)
         opacityIcon.contentTintColor = .secondaryLabelColor
-        let stack = NSStackView(views: [moveHandle, returnButton, stopButton, chooseButton, opacityIcon, opacitySlider, opacityLabel])
+        let stack = NSStackView(views: [moveHandle, returnButton, hideButton, stopButton, chooseButton, opacityIcon, opacitySlider, opacityLabel])
         stack.spacing = 10
         stack.alignment = .centerY
         for (view, width) in [(moveHandle as NSView, 22.0), (chooseButton, 26.0), (opacityIcon, 14.0), (opacitySlider, 72.0), (opacityLabel, 36.0)] {
@@ -258,10 +283,16 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         statusBackground.isHidden = true
     }
 
-    private var availableFrame: CGRect {
+    private var screenFrame: CGRect {
         (panel.screen ?? NSScreen.main)?.visibleFrame.insetBy(dx: 16, dy: 16)
             ?? CGRect(x: 16, y: 16, width: 1248, height: 768)
     }
+
+    private func contentArea(in screen: CGRect) -> CGRect {
+        PreviewChromeLayout.contentArea(in: screen, toolbarHeight: controlsPanel.frame.height, resizeWidth: resizePanel.frame.width)
+    }
+
+    private var availableFrame: CGRect { contentArea(in: screenFrame) }
 
     func show(sourceSize: CGSize, title: String?, canActivateSource: Bool = false) {
         self.sourceSize = sourceSize
@@ -273,7 +304,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
             let saved = defaults.string(forKey: preferenceKey("previewFrame")).map(NSRectFromString)
             let savedScreen = saved.flatMap { frame in NSScreen.screens.first { $0.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) } }
             let screen = savedScreen ?? NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-            let available = screen?.visibleFrame.insetBy(dx: 16, dy: 16) ?? availableFrame
+            let available = contentArea(in: screen?.visibleFrame.insetBy(dx: 16, dy: 16) ?? screenFrame)
             let size = PreviewSizing.initialSize(source: sourceSize, available: available.size)
             let initial = initialFrame(size: size, available: available)
             let restored = saved.flatMap { frame -> CGRect? in
@@ -287,9 +318,12 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
             fitSourceKeepingTopLeft()
         }
         isPresented = true
+        let wasHidden = isTemporarilyHidden
+        isTemporarilyHidden = false
         layoutControls()
         updateVisibility()
         notifyResize()
+        if wasHidden { onVisibilityChange?() }
     }
 
     private func updateSourceSize(_ size: CGSize) {
@@ -318,13 +352,15 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     private func preferenceKey(_ key: String) -> String { slot == 0 ? key : "preview.\(slot).\(key)" }
 
     private func initialFrame(size: CGSize, available: CGRect) -> CGRect {
-        let rows = max(1, Int((available.height + 16) / (size.height + 16)))
-        let columns = max(1, Int((available.width + 16) / (size.width + 16)))
+        let verticalGap = controlsPanel.frame.height + PreviewChromeLayout.toolbarGap + 16
+        let horizontalGap = resizePanel.frame.width + PreviewChromeLayout.resizeGap + 16
+        let rows = max(1, Int((available.height + verticalGap) / (size.height + verticalGap)))
+        let columns = max(1, Int((available.width + horizontalGap) / (size.width + horizontalGap)))
         let page = slot / (rows * columns)
         let column = (slot / rows) % columns
         let row = slot % rows
-        let frame = CGRect(x: available.maxX - size.width - CGFloat(column) * (size.width + 16) - CGFloat(page * 32),
-                           y: available.maxY - size.height - CGFloat(row) * (size.height + 16) - CGFloat(page * 32),
+        let frame = CGRect(x: available.maxX - size.width - CGFloat(column) * (size.width + horizontalGap) - CGFloat(page * 32),
+                           y: available.maxY - size.height - CGFloat(row) * (size.height + verticalGap) - CGFloat(page * 32),
                            width: size.width, height: size.height)
         return PreviewSizing.constrained(frame, to: available)
     }
@@ -334,9 +370,16 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         updateVisibility()
     }
 
+    func setTemporarilyHidden(_ hidden: Bool) {
+        guard isPresented, hidden != isTemporarilyHidden else { return }
+        isTemporarilyHidden = hidden
+        updateVisibility()
+        onVisibilityChange?()
+    }
+
     private func updateVisibility() {
         guard isPresented else { return }
-        if sourceIsActive {
+        if sourceIsActive || isTemporarilyHidden {
             setChromeVisible(false)
             panel.orderOut(nil)
             stopPointerTracking()
@@ -371,8 +414,8 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     }
 
     func updateHover(at point: CGPoint, pressedButtons: Int = 0, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        guard isPresented, panel.isVisible, !sourceIsActive else { setChromeVisible(false); return }
-        let inside = panel.frame.contains(point) || (isChromeVisible && (controlsPanel.frame.contains(point) || resizePanel.frame.contains(point)))
+        guard isPresented, panel.isVisible, !sourceIsActive, !isTemporarilyHidden else { setChromeVisible(false); return }
+        let inside = containsHoverPoint(point)
         if isManipulating || (isChromeVisible && pressedButtons != 0) { return }
         if inside, shouldRevealControls?(point) == false { setChromeVisible(false); return }
         if inside {
@@ -383,8 +426,21 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    func containsHoverPoint(_ point: CGPoint) -> Bool {
+        guard panel.isVisible else { return false }
+        if panel.frame.contains(point) { return true }
+        guard isChromeVisible else { return false }
+        // These are logical hover corridors only; they never intercept clicks.
+        let toolbarBridge = CGRect(x: max(panel.frame.minX, controlsPanel.frame.minX), y: panel.frame.maxY,
+                                   width: max(0, min(panel.frame.maxX, controlsPanel.frame.maxX) - max(panel.frame.minX, controlsPanel.frame.minX)),
+                                   height: PreviewChromeLayout.toolbarGap)
+        let resizeBridge = CGRect(x: panel.frame.maxX, y: panel.frame.minY,
+                                  width: PreviewChromeLayout.resizeGap, height: min(panel.frame.height, resizePanel.frame.height))
+        return controlsPanel.frame.contains(point) || resizePanel.frame.contains(point) || toolbarBridge.contains(point) || resizeBridge.contains(point)
+    }
+
     func setChromeVisible(_ visible: Bool) {
-        let show = visible && isPresented && panel.isVisible && !sourceIsActive
+        let show = visible && isPresented && panel.isVisible && !sourceIsActive && !isTemporarilyHidden
         guard show != isChromeVisible else { return }
         isChromeVisible = show
         if show {
@@ -398,11 +454,9 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     }
 
     private func layoutControls() {
-        let available = availableFrame
-        let width = controlsPanel.frame.width
-        controlsPanel.setFrameOrigin(CGPoint(x: min(max(panel.frame.midX - width / 2, available.minX), available.maxX - width),
-                                             y: max(available.minY, panel.frame.maxY - controlsPanel.frame.height - 6)))
-        resizePanel.setFrameOrigin(CGPoint(x: panel.frame.maxX - 26, y: panel.frame.minY + 2))
+        let frames = PreviewChromeLayout.frames(picture: panel.frame, controls: controlsPanel.frame.size, resize: resizePanel.frame.size, screen: screenFrame)
+        controlsPanel.setFrameOrigin(frames.toolbar.origin)
+        resizePanel.setFrameOrigin(frames.handle.origin)
     }
 
     private func configureHandle(_ handle: PreviewHandle, resizing: Bool) {
@@ -420,9 +474,13 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
                 let vertical = -delta.y * ratio
                 let change = abs(horizontal) >= abs(vertical) ? horizontal : vertical
                 let size = PreviewSizing.size(source: self.sourceSize, preferredWidth: initial.width + change, available: self.availableFrame.size)
-                self.panel.setFrame(CGRect(x: initial.minX, y: initial.maxY - size.height, width: size.width, height: size.height), display: true)
+                let frame = CGRect(x: initial.minX, y: initial.maxY - size.height, width: size.width, height: size.height)
+                self.panel.setFrame(PreviewSizing.constrained(frame, to: self.availableFrame), display: true)
             } else {
-                self.panel.setFrameOrigin(CGPoint(x: initial.minX + delta.x, y: initial.minY + delta.y))
+                let frame = initial.offsetBy(dx: delta.x, dy: delta.y)
+                let targetScreen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) }
+                let available = targetScreen.map { self.contentArea(in: $0.visibleFrame.insetBy(dx: 16, dy: 16)) } ?? self.availableFrame
+                self.panel.setFrame(PreviewSizing.constrained(frame, to: available), display: true)
             }
             self.layoutControls()
         }
@@ -456,6 +514,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         onActivateSource?()
     }
     @objc private func stopPinning() { close() }
+    @objc private func hidePreview() { setTemporarilyHidden(true) }
     @objc private func chooseWindow() { onChooseWindow?() }
 
     func setState(_ state: CaptureState) {
@@ -480,6 +539,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         guard isPresented else { return }
         isPresented = false
         sourceIsActive = false
+        isTemporarilyHidden = false
         isManipulating = false
         setChromeVisible(false)
         stopPointerTracking()

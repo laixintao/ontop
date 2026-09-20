@@ -17,6 +17,13 @@
 "Preview paused" = "画面已暂停";
 "Return to App" = "返回 App";
 "Stop" = "停止";
+"Hide" = "隐藏";
+"Hide Preview" = "隐藏预览";
+"Show Preview" = "显示预览";
+"Show All Previews" = "显示全部预览";
+"Hidden" = "已隐藏";
+"Temporarily hide this preview. Restore it from the OnTop menu." = "临时隐藏这个预览，可从 OnTop 菜单恢复显示。";
+"OnTop — %d pinned windows, %d hidden" = "OnTop — 已置顶 %d 个窗口，%d 个已隐藏";
 "Opacity" = "不透明度";
 "Drag to move" = "拖动以移动浮窗";
 "Drag to resize" = "拖动以等比例缩放";

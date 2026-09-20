@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.0 — Unobstructed controls and temporary hiding
+
+### English
+
+- Hover controls float above the picture, and the resize handle sits outside its bottom-right edge. The reference remains fully visible and click-through.
+- Reserve space for controls at screen edges without moving or resizing the picture on hover. Pointer travel across the small gap keeps controls visible.
+- Hide an individual preview without ending sharing. Restore it with Show Preview or Show All Previews in the menu bar.
+- Manual hiding survives app switches and incoming frames, preserves layout/opacity, and stops hover polling until restored.
+- Add native regression coverage for external button placement, edge cases, click-through, hover gaps, and per-window hide/restore.
+
+### 中文
+
+- 悬停控制条浮在图片上方，缩放手柄位于右下边缘外侧，画面完整可见且保持鼠标穿透。
+- 屏幕边缘为控件预留空间，悬停时不移动或缩放图片；鼠标经过间隙时控件保持显示。
+- 单独隐藏预览而不结束共享，可从菜单栏「显示预览」或「显示全部预览」恢复。
+- 临时隐藏不会因切换 App 或新画面而取消，保留布局和透明度，并在隐藏期间停止鼠标轮询。
+- 补充外置按钮、屏幕边缘、穿透、悬停间隙与独立隐藏/恢复的原生回归测试。
+
 ## 1.2.0 — Independent reference windows
 
 ### English

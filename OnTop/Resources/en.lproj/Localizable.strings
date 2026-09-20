@@ -17,6 +17,13 @@
 "Preview paused" = "Preview paused";
 "Return to App" = "Return to App";
 "Stop" = "Stop";
+"Hide" = "Hide";
+"Hide Preview" = "Hide Preview";
+"Show Preview" = "Show Preview";
+"Show All Previews" = "Show All Previews";
+"Hidden" = "Hidden";
+"Temporarily hide this preview. Restore it from the OnTop menu." = "Temporarily hide this preview. Restore it from the OnTop menu.";
+"OnTop — %d pinned windows, %d hidden" = "OnTop — %d pinned windows, %d hidden";
 "Opacity" = "Opacity";
 "Drag to move" = "Drag to move";
 "Drag to resize" = "Drag to resize";

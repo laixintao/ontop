@@ -7,8 +7,8 @@
 在 `main` 提交好代码后，运行：
 
 ```bash
-make release                   # 1.2.0 → 1.2.1
-make release VERSION=1.3.0      # 或指定一个更高的版本
+make release                   # 1.3.0 → 1.3.1
+make release VERSION=1.4.0      # 或指定一个更高的版本
 ```
 
 任选一条执行。命令会递增 App 版本和构建号，添加 Changelog，根据当前版本标签之后的提交生成中英文发布说明，自动 commit、创建注释 tag，并**原子推送 main 和 tag**。随后由 GitHub Actions 测试、构建、上传 DMG / ZIP / 校验文件、生成来源证明，再正式发布。无需本地打包或手动上传附件。
@@ -50,7 +50,7 @@ make release VERSION=1.3.0      # 或指定一个更高的版本
 从同一 Release 下载安装包和 `SHA256SUMS`。只下载了 DMG 时：
 
 ```bash
-shasum -a 256 OnTop-1.2.0-universal.dmg
+shasum -a 256 OnTop-1.3.0-universal.dmg
 # 与 SHA256SUMS 中对应条目的摘要比对。
 ```
 
@@ -59,7 +59,7 @@ shasum -a 256 OnTop-1.2.0-universal.dmg
 安装 GitHub CLI 后，还可以验证构建来源：
 
 ```bash
-gh attestation verify OnTop-1.2.0-universal.dmg --repo laixintao/ontop
+gh attestation verify OnTop-1.3.0-universal.dmg --repo laixintao/ontop
 ```
 
 ## 签名状态
