@@ -161,6 +161,13 @@ enum SmokeTests {
             try check(preview.panel.collectionBehavior.contains(behavior), "Desktop/fullscreen behavior")
         }
         try check(viewport == CGSize(width: 480, height: 300), "Capture viewport must match the picture")
+        // A user's notification banners occupy the default top-right position.
+        // Keep our hit-testing fixture in the screen center without dismissing
+        // their notifications or changing the app's actual window levels.
+        if let screen = preview.panel.screen?.visibleFrame {
+            preview.panel.setFrameOrigin(CGPoint(x: screen.midX - preview.panel.frame.width / 2,
+                                                 y: screen.midY - preview.panel.frame.height / 2))
+        }
         let original = preview.panel.frame
         let center = CGPoint(x: original.midX, y: original.midY)
         preview.updateHover(at: center, pressedButtons: 1, now: 1)
@@ -229,8 +236,9 @@ enum SmokeTests {
         try check(NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0) == underneath.windowNumber,
                   "Hovering must not turn the picture into an input blocker")
         for picturePoint in [CGPoint(x: original.midX, y: original.maxY - 12), CGPoint(x: original.maxX - 12, y: original.minY + 12)] {
-            try check(NSWindow.windowNumber(at: picturePoint, belowWindowWithWindowNumber: 0) == underneath.windowNumber,
-                      "The former toolbar and resize-handle areas must now pass clicks through")
+            try await waitFor("The former toolbar and resize-handle areas must pass clicks through (point=\(picturePoint), receiver=\(underneath.windowNumber), actual=\(NSWindow.windowNumber(at: picturePoint, belowWindowWithWindowNumber: 0)), picture=\(preview.panel.frame), controls=\(preview.controlsPanel.frame), resize=\(preview.resizePanel.frame))") {
+                NSWindow.windowNumber(at: picturePoint, belowWindowWithWindowNumber: 0) == underneath.windowNumber
+            }
         }
 
         // Deliver a real down/up pair through AppKit, not just performClick.
@@ -263,13 +271,18 @@ enum SmokeTests {
             return NSEvent.mouseEvent(with: type, location: window.convertPoint(fromScreen: screenPoint), modifierFlags: [],
                                       timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!
         }
-        let dragStart = CGPoint(x: preview.controlsPanel.frame.minX + 20, y: preview.controlsPanel.frame.midY)
+        // Start near the enlarged grip's edge, outside its former hit area.
+        let gripPoint = CGPoint(x: 40, y: 2)
+        let content = preview.controlsPanel.contentView!
+        let receiver = content.hitTest(preview.moveHandle.convert(gripPoint, to: content.superview))
+        try check(receiver === preview.moveHandle, "The enlarged grip's padding must accept dragging, not just its icon")
+        let dragStart = preview.controlsPanel.convertPoint(toScreen: preview.moveHandle.convert(gripPoint, to: nil))
         let beforeMove = preview.panel.frame
-        preview.moveHandle.mouseDown(with: event(.leftMouseDown, on: preview.moveHandle, at: dragStart))
-        preview.moveHandle.mouseDragged(with: event(.leftMouseDragged, on: preview.moveHandle, at: CGPoint(x: dragStart.x - 70, y: dragStart.y - 40)))
+        receiver?.mouseDown(with: event(.leftMouseDown, on: preview.moveHandle, at: dragStart))
+        receiver?.mouseDragged(with: event(.leftMouseDragged, on: preview.moveHandle, at: CGPoint(x: dragStart.x - 70, y: dragStart.y - 40)))
         preview.updateHover(at: CGPoint(x: -10000, y: -10000), now: 10)
         try check(preview.isChromeVisible, "Keep handles alive during manipulation outside the panel")
-        preview.moveHandle.mouseUp(with: event(.leftMouseUp, on: preview.moveHandle, at: dragStart))
+        receiver?.mouseUp(with: event(.leftMouseUp, on: preview.moveHandle, at: dragStart))
         try check(near(preview.panel.frame.minX, beforeMove.minX - 70) && near(preview.panel.frame.minY, beforeMove.minY - 40), "Handle drag must move by screen delta")
         try check(returned == 3, "Dragging must never return to the app")
         let beforeResize = preview.panel.frame

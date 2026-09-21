@@ -60,6 +60,12 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.initial, self.git("ls-remote", "origin", "refs/heads/main").split()[0])
 
     def test_patch_release_pushes_commit_and_annotated_tag(self):
+        # This case exercises generation, even when the real checkout already
+        # contains curated notes for its next patch. Preservation is tested below.
+        notes_path = f"docs/releases/{self.next_tag}.md"
+        if (self.repo / notes_path).exists():
+            self.git("rm", "--", notes_path)
+            self.git("commit", "-m", "Exercise generated release notes")
         result = command("make", "release", cwd=self.repo, env=self.env, check=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         info = plistlib.loads((self.repo / "OnTop/Info.plist").read_bytes())

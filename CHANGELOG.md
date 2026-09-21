@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1 — Easier dragging
+
+- Enlarge the move grip's hit area from 22 × 26 to 44 × 44 points, with a larger icon and a subtle background. The toolbar keeps its compact height and stays outside the picture.
+- Verify that dragging from the grip's outer padding moves the preview without triggering adjacent buttons.
+- 将拖动手柄的操作区域从 22 × 26 扩大到 44 × 44 点，放大图标并增加浅色底；控制条保持原有高度，仍在图片外侧。
+- 验证从手柄边缘留白处也能开始拖动，且不会触发相邻按钮。
+
 ## 1.3.0 — Unobstructed controls and temporary hiding
 
 ### English

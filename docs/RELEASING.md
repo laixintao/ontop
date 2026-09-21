@@ -7,7 +7,7 @@
 After committing your work on `main`, run:
 
 ```bash
-make release                   # 1.3.0 → 1.3.1
+make release                   # 1.3.1 → 1.3.2
 make release VERSION=1.4.0      # Or choose a newer version
 ```
 

@@ -79,10 +79,16 @@ final class PreviewHandle: NSView {
         toolTip = label
         setAccessibilityLabel(label)
         let image = NSImageView(image: NSImage(systemSymbolName: resize ? "arrow.up.left.and.arrow.down.right" : "line.3.horizontal", accessibilityDescription: label)!)
-        image.contentTintColor = .secondaryLabelColor
-        image.frame = bounds.insetBy(dx: 4, dy: 4)
-        image.autoresizingMask = [.width, .height]
+        image.contentTintColor = resize ? .secondaryLabelColor : .labelColor
+        image.imageScaling = .scaleProportionallyUpOrDown
+        image.translatesAutoresizingMaskIntoConstraints = false
         addSubview(image)
+        NSLayoutConstraint.activate([
+            image.centerXAnchor.constraint(equalTo: centerXAnchor),
+            image.centerYAnchor.constraint(equalTo: centerYAnchor),
+            image.widthAnchor.constraint(equalToConstant: resize ? 16 : 20),
+            image.heightAnchor.constraint(equalToConstant: resize ? 16 : 20)
+        ])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -90,6 +96,11 @@ final class PreviewHandle: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(convert(point, from: superview)) ? self : nil }
     override var mouseDownCanMoveWindow: Bool { false }
     override func resetCursorRects() { addCursorRect(bounds, cursor: resize ? .crosshair : .openHand) }
+    override func draw(_ dirtyRect: NSRect) {
+        guard !resize else { return }
+        NSColor.labelColor.withAlphaComponent(0.08).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 4), xRadius: 6, yRadius: 6).fill()
+    }
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
         anchor = window.convertPoint(toScreen: event.locationInWindow)
@@ -235,10 +246,10 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         let stack = NSStackView(views: [moveHandle, returnButton, hideButton, stopButton, chooseButton, opacityIcon, opacitySlider, opacityLabel])
         stack.spacing = 10
         stack.alignment = .centerY
-        for (view, width) in [(moveHandle as NSView, 22.0), (chooseButton, 26.0), (opacityIcon, 14.0), (opacitySlider, 72.0), (opacityLabel, 36.0)] {
+        for (view, width) in [(moveHandle as NSView, 44.0), (chooseButton, 26.0), (opacityIcon, 14.0), (opacitySlider, 72.0), (opacityLabel, 36.0)] {
             view.widthAnchor.constraint(equalToConstant: width).isActive = true
         }
-        moveHandle.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        moveHandle.heightAnchor.constraint(equalToConstant: 44).isActive = true
         let background = materialView()
         controlsPanel.contentView = background
         stack.translatesAutoresizingMaskIntoConstraints = false
