@@ -23,6 +23,7 @@ enum SmokeTests {
                 try chromeGeometry()
                 try cropping()
                 try await interactionAndRendering()
+                try await nativeMoveLifecycle()
                 try await pointerLifecycle()
                 try await multipleWindows()
                 print("PASS [\(Bundle.main.preferredLocalizations.first ?? "en")]: \(assertions) assertions — pixel cropping, click-through, controls, opacity, geometry, app switching, multiple windows, lifecycle")
@@ -136,7 +137,12 @@ enum SmokeTests {
     private static func interactionAndRendering() async throws {
         let (defaults, domain) = isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: domain) }
-        let preview = PreviewPanelController(defaults: defaults, tracksPointer: false)
+        var nativeDragWindow: NSWindow?
+        var nativeDragEvent: NSEvent?
+        let preview = PreviewPanelController(defaults: defaults, tracksPointer: false) { window, event in
+            nativeDragWindow = window
+            nativeDragEvent = event
+        }
         let capture = CaptureController()
         var closed = 0, returned = 0, chosen = 0
         var viewport = CGSize.zero
@@ -278,12 +284,39 @@ enum SmokeTests {
         try check(receiver === preview.moveHandle, "The enlarged grip's padding must accept dragging, not just its icon")
         let dragStart = preview.controlsPanel.convertPoint(toScreen: preview.moveHandle.convert(gripPoint, to: nil))
         let beforeMove = preview.panel.frame
-        receiver?.mouseDown(with: event(.leftMouseDown, on: preview.moveHandle, at: dragStart))
+        let mouseDown = event(.leftMouseDown, on: preview.moveHandle, at: dragStart)
+        receiver?.mouseDown(with: mouseDown)
+        try check(nativeDragWindow === preview.controlsPanel && nativeDragEvent === mouseDown,
+                  "The grip must hand its original mouse-down event to native toolbar dragging")
+        try check(preview.isMoving && preview.panel.parent === preview.controlsPanel && preview.resizePanel.parent === preview.controlsPanel,
+                  "Native dragging must group the picture and resize handle under the interactive toolbar")
+        try await waitFor("The grouped picture must still route input to the window underneath") {
+            NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0) == underneath.windowNumber
+        }
+        try await waitFor("Grouping must preserve toolbar button hit testing") {
+            NSWindow.windowNumber(at: buttonPoint, belowWindowWithWindowNumber: 0) == preview.controlsPanel.windowNumber
+        }
+        // Exercise AppKit's actual parent/child movement without posting global
+        // input or requesting Accessibility. Visible smoothness is checked manually.
+        let toolbarBeforeMove = preview.controlsPanel.frame
+        let resizeBeforeMove = preview.resizePanel.frame
+        preview.controlsPanel.setFrameOrigin(CGPoint(x: toolbarBeforeMove.minX - 70, y: toolbarBeforeMove.minY - 40))
+        try check(preview.panel.frame == beforeMove.offsetBy(dx: -70, dy: -40) &&
+                  preview.resizePanel.frame == resizeBeforeMove.offsetBy(dx: -70, dy: -40),
+                  "AppKit must move the picture and resize handle together with the toolbar")
+        let groupedFrame = preview.panel.frame
         receiver?.mouseDragged(with: event(.leftMouseDragged, on: preview.moveHandle, at: CGPoint(x: dragStart.x - 70, y: dragStart.y - 40)))
-        preview.updateHover(at: CGPoint(x: -10000, y: -10000), now: 10)
+        try check(preview.panel.frame == groupedFrame, "App-delivered drag events must not reposition a system-dragged window")
+        preview.updateHover(at: CGPoint(x: -10000, y: -10000), pressedButtons: 1, now: 10)
+        preview.setChromeVisible(false)
         try check(preview.isChromeVisible, "Keep handles alive during manipulation outside the panel")
-        receiver?.mouseUp(with: event(.leftMouseUp, on: preview.moveHandle, at: dragStart))
+        // WindowServer may consume mouseUp; passive button-state observation must
+        // still finish, detach, and save the gesture, even outside all windows.
+        preview.updateHover(at: CGPoint(x: -10000, y: -10000), pressedButtons: 0, now: 11)
+        try check(!preview.isMoving && preview.panel.parent == nil && preview.resizePanel.parent == nil,
+                  "Release without mouseUp must restore independent panels")
         try check(near(preview.panel.frame.minX, beforeMove.minX - 70) && near(preview.panel.frame.minY, beforeMove.minY - 40), "Handle drag must move by screen delta")
+        try check(defaults.string(forKey: "previewFrame") == NSStringFromRect(preview.panel.frame), "Native move completion must persist the final picture frame")
         try check(returned == 3, "Dragging must never return to the app")
         let beforeResize = preview.panel.frame
         let resizeStart = CGPoint(x: preview.resizePanel.frame.midX, y: preview.resizePanel.frame.midY)
@@ -296,6 +329,10 @@ enum SmokeTests {
         try check(viewport == preview.videoView.bounds.size, "Resize must update capture resolution")
         try check(preview.videoView.displayLayer.frame == preview.videoView.bounds,
                   "Resizing must resize the actual video layer, not only the NSWindow")
+        let resizedFrame = preview.panel.frame
+        try await Task.sleep(for: .milliseconds(75))
+        try check(preview.panel.frame == resizedFrame,
+                  "Immediate resize after native dragging must not shift when the detachment transaction reaches WindowServer")
 
         let source = try makeFrame(content: CGRect(x: 80, y: 60, width: 320, height: 200), scale: 2)
         preview.display(source)
@@ -324,7 +361,7 @@ enum SmokeTests {
         for dimensions in [(640, 400), (1200, 900), (800, 600), (640, 400)] {
             let padded = try makeFrame(width: dimensions.0, height: dimensions.1, content: CGRect(x: 80, y: 60, width: 320, height: 200), scale: 2)
             preview.display(padded)
-            try check(preview.panel.frame == frame, "Changing IOSurface size/padding must not resize the preview")
+            try check(preview.panel.frame == frame, "Changing IOSurface size/padding must not resize the preview (expected=\(frame), actual=\(preview.panel.frame))")
             try await Task.sleep(for: .milliseconds(30))
         }
         // A real source aspect change should fit the window, while preserving its chosen width.
@@ -366,6 +403,138 @@ enum SmokeTests {
         await capture.shutdown()
         try check(capture.state == .idle, "Stop leaves the capture idle")
         try check(!capture.activateSourceApplication(), "Idle capture cannot activate an unrelated app")
+    }
+
+    private static func nativeMoveLifecycle() async throws {
+        let (defaults, domain) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let preview = PreviewPanelController(defaults: defaults, tracksPointer: false, dragWindow: { _, _ in })
+        let other = PreviewPanelController(defaults: defaults, tracksPointer: false, slot: 1, dragWindow: { _, _ in })
+        defer { preview.close(); other.close() }
+        preview.show(sourceSize: CGSize(width: 800, height: 500), title: "Native drag lifecycle")
+        other.show(sourceSize: CGSize(width: 800, height: 500), title: "Independent preview")
+
+        func startMove(_ target: PreviewPanelController) throws {
+            target.setChromeVisible(true)
+            let event = NSEvent.mouseEvent(with: .leftMouseDown,
+                                          location: target.moveHandle.convert(CGPoint(x: 22, y: 22), to: nil),
+                                          modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: target.controlsPanel.windowNumber, context: nil,
+                                          eventNumber: 0, clickCount: 1, pressure: 1)!
+            target.moveHandle.mouseDown(with: event)
+            try check(target.isMoving, "Grip must start a new native drag after earlier gestures and visibility changes")
+        }
+        func release(_ target: PreviewPanelController) {
+            target.updateHover(at: CGPoint(x: target.controlsPanel.frame.midX, y: target.controlsPanel.frame.midY), pressedButtons: 0)
+        }
+        func movePicture(to origin: CGPoint) {
+            let picture = preview.panel.frame
+            let toolbar = preview.controlsPanel.frame
+            preview.controlsPanel.setFrameOrigin(CGPoint(x: toolbar.minX + origin.x - picture.minX,
+                                                        y: toolbar.minY + origin.y - picture.minY))
+        }
+        func detached(_ target: PreviewPanelController) -> Bool {
+            !target.isMoving && target.panel.parent == nil && target.resizePanel.parent == nil && (target.controlsPanel.childWindows ?? []).isEmpty
+        }
+
+        let otherFrame = other.panel.frame
+        let otherControls = other.controlsPanel.frame
+        preview.setOpacity(0.45)
+        try startMove(preview)
+        movePicture(to: CGPoint(x: preview.panel.frame.minX - 50, y: preview.panel.frame.minY - 30))
+        try check(other.panel.frame == otherFrame && other.controlsPanel.frame == otherControls && detached(other),
+                  "Moving one preview must leave every panel of the other preview untouched")
+        try check(near(preview.panel.alphaValue, 0.45) && preview.controlsPanel.alphaValue == 1 && preview.resizePanel.alphaValue == 1,
+                  "Native grouping must preserve independent picture and control opacity")
+        release(preview)
+        try check(detached(preview) && preview.panel.level == .floating,
+                  "Finishing native movement must restore independent floating windows")
+
+        // A new press can precede the next 20 Hz hover tick. It must finish the
+        // previous gesture, rather than ignoring the new move or resizing a group.
+        try startMove(preview)
+        try startMove(preview)
+        try check(preview.controlsPanel.childWindows?.count == 2, "Rapid successive moves must not duplicate child windows")
+        let beforeQuickResize = preview.panel.frame
+        let resizeStart = CGPoint(x: preview.resizePanel.frame.midX, y: preview.resizePanel.frame.midY)
+        func resizeEvent(_ type: NSEvent.EventType, at point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: preview.resizePanel.convertPoint(fromScreen: point),
+                              modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                              windowNumber: preview.resizePanel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        preview.resizeHandle.mouseDown(with: resizeEvent(.leftMouseDown, at: resizeStart))
+        try check(detached(preview), "A resize press before the release timer fires must finish native movement first")
+        preview.resizeHandle.mouseDragged(with: resizeEvent(.leftMouseDragged, at: CGPoint(x: resizeStart.x - 40, y: resizeStart.y)))
+        preview.resizeHandle.mouseUp(with: resizeEvent(.leftMouseUp, at: resizeStart))
+        let quickResizeFrame = preview.panel.frame
+        try await Task.sleep(for: .milliseconds(75))
+        try check(preview.panel.frame == quickResizeFrame && near(quickResizeFrame.width, beforeQuickResize.width - 40) && near(quickResizeFrame.minX, beforeQuickResize.minX),
+                  "Resizing before the release timer fires must preserve width, top-left position, and later frame stability")
+
+        // A source resize and display notification must not fight WindowServer.
+        try startMove(preview)
+        let beforeSourceResize = preview.panel.frame
+        let beforeControls = preview.controlsPanel.frame
+        preview.videoView.onContentSizeChange?(CGSize(width: 800, height: 800))
+        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        try check(preview.panel.frame == beforeSourceResize && preview.controlsPanel.frame == beforeControls,
+                  "Source and display changes must not rewrite group frames while dragging")
+        release(preview)
+        try check(near(preview.panel.frame.width / preview.panel.frame.height, 1), "Apply the latest source aspect after native dragging ends")
+
+        // Exercise placement on each available display, including negative origins
+        // and mixed backing scales, without requiring global mouse injection.
+        for screen in NSScreen.screens {
+            try startMove(preview)
+            movePicture(to: CGPoint(x: screen.visibleFrame.midX - preview.panel.frame.width / 2,
+                                   y: screen.visibleFrame.midY - preview.panel.frame.height / 2))
+            release(preview)
+            let screenBounds = screen.visibleFrame.insetBy(dx: 16, dy: 16)
+            try check(screenBounds.contains(preview.panel.frame) && screenBounds.contains(preview.controlsPanel.frame) && screenBounds.contains(preview.resizePanel.frame),
+                      "Dropping on another display must keep picture and external controls on that display")
+            try startMove(preview)
+            movePicture(to: CGPoint(x: screenBounds.minX - 40, y: screenBounds.minY - 40))
+            release(preview)
+            try check(screenBounds.contains(preview.panel.frame) && screenBounds.contains(preview.controlsPanel.frame) && screenBounds.contains(preview.resizePanel.frame),
+                      "Dropping past a screen edge must recover all three panels within its usable bounds")
+            try check(defaults.string(forKey: "previewFrame") == NSStringFromRect(preview.panel.frame), "Persist the constrained drop position")
+        }
+
+        for interruption in 0..<3 {
+            try startMove(preview)
+            switch interruption {
+            case 0: preview.setSourceApplicationActive(true)
+            case 1: preview.setTemporarilyHidden(true)
+            default: preview.close()
+            }
+            try check(detached(preview) && !preview.panel.isVisible && !preview.controlsPanel.isVisible && !preview.resizePanel.isVisible,
+                      "Source activation, hiding, and stopping must detach and hide a moving group")
+            let saved = preview.panel.frame
+            switch interruption {
+            case 0: preview.setSourceApplicationActive(false)
+            case 1: preview.setTemporarilyHidden(false)
+            default: preview.show(sourceSize: CGSize(width: 800, height: 800), title: "Reopened preview")
+            }
+            try check(preview.panel.isVisible && preview.panel.frame == saved && !preview.isChromeVisible,
+                      "Restoring after an interrupted drag must retain the picture frame without orphan controls")
+        }
+        try startMove(preview)
+        preview.resetSize()
+        try check(detached(preview) && near(preview.panel.frame.width, 480), "Reset during a drag must finish the group before applying its new frame")
+        try startMove(preview)
+        preview.show(sourceSize: CGSize(width: 800, height: 500), title: "Replacement source")
+        try check(detached(preview) && near(preview.panel.frame.width / preview.panel.frame.height, 1.6),
+                  "Replacing a source during a drag must end grouping before changing geometry")
+        preview.close()
+        other.close()
+
+        // Use the real passive timer too: no mouseUp callback is delivered here.
+        let tracked = PreviewPanelController(defaults: defaults, dragWindow: { _, _ in })
+        defer { tracked.close() }
+        tracked.show(sourceSize: CGSize(width: 800, height: 500), title: "Native drag release observation")
+        try startMove(tracked)
+        try await waitFor("The real hover timer must finish a native drag without a mouseUp event") { detached(tracked) }
+        try check(defaults.string(forKey: "previewFrame") == NSStringFromRect(tracked.panel.frame), "Timer-driven completion must save the position")
     }
 
     private static func pointerLifecycle() async throws {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.2 — Smooth native dragging
+
+[Release notes / 发布说明](docs/releases/v1.3.2.md)
+
+- Hand preview movement to macOS native grouped dragging to fix pointer-following lag. Keep the large grip, click-through picture, and external hover controls.
+- Finish dragging even when macOS consumes mouse-up; preserve layout through hiding, stopping, source changes, and display changes.
+- 将浮窗移动交给 macOS 原生窗口组拖动，修复拖动跟不上鼠标的问题；保留大手柄、画面穿透和外置悬停控件。
+- 即使系统消耗鼠标松开事件，也能完成拖动并保存布局；覆盖隐藏、停止、来源变化和显示器变化。
+
 ## 1.3.1 — Easier dragging
 
 - Enlarge the move grip's hit area from 22 × 26 to 44 × 44 points, with a larger icon and a subtle background. The toolbar keeps its compact height and stays outside the picture.

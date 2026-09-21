@@ -66,6 +66,7 @@ final class PreviewButton: NSButton {
 /// Explicit handles keep both dragging and resizing out of the click-through picture.
 @MainActor
 final class PreviewHandle: NSView {
+    var onMove: ((NSEvent) -> Void)?
     var onBegin: (() -> Void)?
     var onDrag: ((CGPoint) -> Void)?
     var onEnd: (() -> Void)?
@@ -103,6 +104,10 @@ final class PreviewHandle: NSView {
     }
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
+        if !resize {
+            onMove?(event)
+            return
+        }
         anchor = window.convertPoint(toScreen: event.locationInWindow)
         onBegin?()
     }
@@ -144,6 +149,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     private let defaults: UserDefaults
     private let tracksPointer: Bool
     private let slot: Int
+    private let dragWindow: (NSWindow, NSEvent) -> Void
     private var pointerTimer: Timer?
     private var state: CaptureState = .idle
     private var sourceSize = CGSize(width: 800, height: 500)
@@ -157,11 +163,14 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     private(set) var opacity: Double = 1
     private(set) var isTrackingPointer = false
     private(set) var isTemporarilyHidden = false
+    private(set) var isMoving = false
 
-    init(defaults: UserDefaults = .standard, tracksPointer: Bool = true, slot: Int = 0) {
+    init(defaults: UserDefaults = .standard, tracksPointer: Bool = true, slot: Int = 0,
+         dragWindow: @escaping (NSWindow, NSEvent) -> Void = { $0.performDrag(with: $1) }) {
         self.defaults = defaults
         self.tracksPointer = tracksPointer
         self.slot = slot
+        self.dragWindow = dragWindow
         func makePanel(_ size: CGSize) -> NSPanel {
             let panel = PreviewPanel(contentRect: CGRect(origin: .zero, size: size),
                                      styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -180,8 +189,8 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         controlsPanel = makePanel(CGSize(width: 440, height: 44))
         resizePanel = makePanel(CGSize(width: 24, height: 24))
         super.init()
-        // Child windows inherit the parent's click-through behavior at the
-        // WindowServer level. Keep the hit-testable controls independent.
+        // Keep controls independent except during native dragging. A click-through
+        // parent would also make its controls miss clicks at the WindowServer level.
         controlsPanel.level = NSWindow.Level(rawValue: panel.level.rawValue + 1)
         resizePanel.level = controlsPanel.level
         panel.ignoresMouseEvents = true
@@ -190,8 +199,8 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         configureControls()
         configureStatus()
         videoView.onContentSizeChange = { [weak self] size in self?.updateSourceSize(size) }
-        configureHandle(moveHandle, resizing: false)
-        configureHandle(resizeHandle, resizing: true)
+        moveHandle.onMove = { [weak self] event in self?.beginMove(with: event) }
+        configureResizeHandle()
         setOpacity(defaults.object(forKey: preferenceKey("previewOpacity")) as? Double ?? 1)
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -306,6 +315,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     private var availableFrame: CGRect { contentArea(in: screenFrame) }
 
     func show(sourceSize: CGSize, title: String?, canActivateSource: Bool = false) {
+        finishMove()
         self.sourceSize = sourceSize
         self.canActivateSource = canActivateSource
         panel.title = title.map { "\($0) — OnTop" } ?? "OnTop"
@@ -345,6 +355,9 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     }
 
     private func fitSourceKeepingTopLeft() {
+        // Source aspect changes can arrive during a native drag. Apply the latest
+        // size after release, without moving any member of the group ourselves.
+        guard !isMoving else { return }
         let size = PreviewSizing.size(source: sourceSize, preferredWidth: panel.frame.width, available: availableFrame.size)
         let frame = CGRect(x: panel.frame.minX, y: panel.frame.maxY - size.height, width: size.width, height: size.height)
         panel.setFrame(PreviewSizing.constrained(frame, to: availableFrame), display: true)
@@ -353,6 +366,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
 
     func resetSize() {
         guard isPresented else { return }
+        finishMove()
         let size = PreviewSizing.initialSize(source: sourceSize, available: availableFrame.size)
         let frame = initialFrame(size: size, available: availableFrame)
         panel.setFrame(frame, display: true)
@@ -391,6 +405,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     private func updateVisibility() {
         guard isPresented else { return }
         if sourceIsActive || isTemporarilyHidden {
+            finishMove()
             setChromeVisible(false)
             panel.orderOut(nil)
             stopPointerTracking()
@@ -425,6 +440,13 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     }
 
     func updateHover(at point: CGPoint, pressedButtons: Int = 0, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        // performDrag returns immediately and may consume mouseUp. The existing
+        // passive timer finishes the gesture even when release is outside the app.
+        if isMoving {
+            guard pressedButtons & 1 == 0 else { return }
+            finishMove()
+            lastHoverTime = now
+        }
         guard isPresented, panel.isVisible, !sourceIsActive, !isTemporarilyHidden else { setChromeVisible(false); return }
         let inside = containsHoverPoint(point)
         if isManipulating || (isChromeVisible && pressedButtons != 0) { return }
@@ -451,6 +473,8 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     }
 
     func setChromeVisible(_ visible: Bool) {
+        // Ordering out the parent during a native drag would also hide the picture.
+        guard !isMoving else { return }
         let show = visible && isPresented && panel.isVisible && !sourceIsActive && !isTemporarilyHidden
         guard show != isChromeVisible else { return }
         isChromeVisible = show
@@ -465,37 +489,59 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     }
 
     private func layoutControls() {
+        guard !isMoving else { return }
         let frames = PreviewChromeLayout.frames(picture: panel.frame, controls: controlsPanel.frame.size, resize: resizePanel.frame.size, screen: screenFrame)
         controlsPanel.setFrameOrigin(frames.toolbar.origin)
         resizePanel.setFrameOrigin(frames.handle.origin)
     }
 
-    private func configureHandle(_ handle: PreviewHandle, resizing: Bool) {
-        handle.onBegin = { [weak self] in
+    private func beginMove(with event: NSEvent) {
+        guard isPresented, panel.isVisible, isChromeVisible, !isManipulating else { return }
+        // A second mouse-down may arrive before the passive timer observed the
+        // previous release. Finish that gesture before starting another one.
+        finishMove()
+        isMoving = true
+        // The interactive toolbar must be the parent so the picture can retain
+        // its own click-through behavior. WindowServer moves all three together.
+        controlsPanel.addChildWindow(panel, ordered: .below)
+        controlsPanel.addChildWindow(resizePanel, ordered: .above)
+        dragWindow(controlsPanel, event)
+    }
+
+    private func finishMove() {
+        guard isMoving else { return }
+        // Keep callbacks suppressed until both children have been detached.
+        controlsPanel.removeChildWindow(panel)
+        controlsPanel.removeChildWindow(resizePanel)
+        panel.level = .floating
+        // Commit detachment before laying out independent controls. Otherwise an
+        // immediate resize can still move the picture with its former parent.
+        CATransaction.flush()
+        isMoving = false
+        fitSourceKeepingTopLeft()
+        saveFrame()
+    }
+
+    private func configureResizeHandle() {
+        resizeHandle.onBegin = { [weak self] in
             guard let self else { return }
+            self.finishMove()
             self.isManipulating = true
             self.manipulationFrame = self.panel.frame
         }
-        handle.onDrag = { [weak self] delta in
+        resizeHandle.onDrag = { [weak self] delta in
             guard let self else { return }
             let initial = self.manipulationFrame
-            if resizing {
-                let ratio = PreviewSizing.aspectRatio(self.sourceSize)
-                let horizontal = delta.x
-                let vertical = -delta.y * ratio
-                let change = abs(horizontal) >= abs(vertical) ? horizontal : vertical
-                let size = PreviewSizing.size(source: self.sourceSize, preferredWidth: initial.width + change, available: self.availableFrame.size)
-                let frame = CGRect(x: initial.minX, y: initial.maxY - size.height, width: size.width, height: size.height)
-                self.panel.setFrame(PreviewSizing.constrained(frame, to: self.availableFrame), display: true)
-            } else {
-                let frame = initial.offsetBy(dx: delta.x, dy: delta.y)
-                let targetScreen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) }
-                let available = targetScreen.map { self.contentArea(in: $0.visibleFrame.insetBy(dx: 16, dy: 16)) } ?? self.availableFrame
-                self.panel.setFrame(PreviewSizing.constrained(frame, to: available), display: true)
-            }
+            let ratio = PreviewSizing.aspectRatio(self.sourceSize)
+            let horizontal = delta.x
+            let vertical = -delta.y * ratio
+            let change = abs(horizontal) >= abs(vertical) ? horizontal : vertical
+            let size = PreviewSizing.size(source: self.sourceSize, preferredWidth: initial.width + change, available: self.availableFrame.size)
+            let frame = CGRect(x: initial.minX, y: initial.maxY - size.height, width: size.width, height: size.height)
+            self.panel.setFrame(PreviewSizing.constrained(frame, to: self.availableFrame), display: true)
             self.layoutControls()
         }
-        handle.onEnd = { [weak self] in
+        resizeHandle.onEnd = { [weak self] in
             guard let self else { return }
             self.isManipulating = false
             self.keepOnScreen()
@@ -504,7 +550,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     }
 
     private func keepOnScreen() {
-        guard isPresented else { return }
+        guard isPresented, !isMoving else { return }
         panel.setFrame(PreviewSizing.constrained(panel.frame, to: availableFrame), display: true)
         layoutControls()
     }
@@ -548,6 +594,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
 
     func close() {
         guard isPresented else { return }
+        finishMove()
         isPresented = false
         sourceIsActive = false
         isTemporarilyHidden = false

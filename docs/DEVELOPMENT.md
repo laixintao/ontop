@@ -34,6 +34,8 @@ Quit a running development app before replacing its bundle. A new launch needs a
 
 The picture window always ignores mouse events. Controls are independent nonactivating panels, so making them visible never turns the picture into an input blocker. Hover reads the pointer location at 20 Hz only while the preview is visible; it needs no global event tap.
 
+Dragging temporarily makes the toolbar the parent of the picture and resize panel, then passes the grip's original mouse-down event to `NSWindow.performDrag(with:)`. WindowServer moves the group without per-event frame synchronization in OnTop. The existing pointer timer detects release because native dragging may consume `mouseUp`. Completion detaches the panels, applies pending source geometry, constrains the drop to the display, and saves the position. Hiding, stopping, resetting, or replacing the source also ends the group.
+
 The toolbar sits above the picture and the resize handle sits to its right. Layout reserves screen space for both even when they are hidden, so hovering never moves or shrinks the picture. Hover corridors bridge the gaps without intercepting clicks. Temporary hiding is independent of source-app activation: it hides all preview panels and stops pointer polling, while capture continues. Only an explicit restore or source change clears it.
 
 Each selection creates a separate capture/preview pair. Picker callbacks carrying a stream update only that pair; nil-stream selections add a reference. On macOS 15.2+, window IDs prevent duplicate references. Per-slot layout/opacity persist independently; new slots start tiled. Overlapping previews resolve hover through AppKit's own window-number list. Using a source app hides only its previews. One stream failing or stopping never deactivates the others' shared picker.
@@ -51,6 +53,8 @@ make check
 The complete CI command validates project files, builds the app, runs the native suite in English and Chinese, builds a universal app, and verifies ZIP/DMG round trips, signatures, architectures, resources, license, and checksums.
 
 The native suite covers pixel crop orientation at 1×/2×/3×, black documents, malformed/empty frames, bounded crop allocations, actual WindowServer hit testing, native button events, nonactivating behavior, hover, opacity persistence, movement/resizing, 30 hide/restore cycles, video layer dimensions, reset, and teardown. Visual evidence is saved in `build/qa/`.
+
+Native-drag tests intercept only the system drag entry point; they exercise AppKit's real parent/child movement, grouped hit testing, release without `mouseUp`, independent previews, source resizing, display placement, and interrupted gestures. They do not inject global mouse input or measure visible pointer-to-window latency. Verify smoothness with a real drag as part of manual acceptance.
 
 Release tests use temporary local Git repositories and a fake `gh`. They exercise version bumps, annotated tags, atomic pushes, custom notes, dirty trees, remote conflicts, push failure/retry, draft recovery, and protection of published assets. They make no GitHub requests and do not alter the real repository.
 
@@ -71,7 +75,7 @@ Automated tests use synthetic frames. The real sharing picker and other apps sti
 - Choose a browser page or PDF. Read static text, scroll the original, and verify live updates.
 - Add a second window using **Add Window…**, including through macOS's sharing menu. Check independent content, move/resize/opacity, source switching, cancel/replace, and stopping just one preview. Repeat with two windows from the same app.
 - Work through the preview: click, scroll, and select text underneath it. Hover controls should remain usable without taking keyboard focus.
-- Move the preview to each screen edge and across displays. Check that controls stay outside the picture and remain visible while crossing the gaps.
+- Drag the grip rapidly within one screen, then to each screen edge and across displays. Compare responsiveness with a normal macOS window. Release outside the preview, then immediately resize or hide/restore it; check for jumps, stuck controls, or lost position. Controls must stay outside the picture and remain visible while crossing the gaps.
 - Hide one preview, switch apps, and verify it stays hidden while other previews continue. Restore it from its menu or **Show All Previews**; position, size, and opacity should be preserved.
 - Return to the source app, switch away repeatedly, and resize the original. Confirm no accumulating borders, scale drift, or duplicate previews.
 - Change opacity, move, resize, relaunch, and recover with **Reset Preview Size**.
