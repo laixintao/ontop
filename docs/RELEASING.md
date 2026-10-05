@@ -50,7 +50,7 @@ If an upload is interrupted, rerun the failed job: an existing draft can be comp
 Download the installer and `SHA256SUMS` from the same release. To verify one downloaded file:
 
 ```bash
-shasum -a 256 OnTop-1.3.0-universal.dmg
+shasum -a 256 OnTop-1.4.0-macos-universal.dmg
 # Compare the digest with its entry in SHA256SUMS.
 ```
 
@@ -59,7 +59,7 @@ If you downloaded both DMG and ZIP, run `shasum -a 256 -c SHA256SUMS` from that 
 With the GitHub CLI installed, also verify where the installer was built:
 
 ```bash
-gh attestation verify OnTop-1.3.0-universal.dmg --repo laixintao/ontop
+gh attestation verify OnTop-1.4.0-macos-universal.dmg --repo laixintao/ontop
 ```
 
 [GitHub's attestation documentation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-artifact-attestations) describes the verification model.

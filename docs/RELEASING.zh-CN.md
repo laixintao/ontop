@@ -50,7 +50,7 @@ make release VERSION=1.4.0      # 或指定一个更高的版本
 从同一 Release 下载安装包和 `SHA256SUMS`。只下载了 DMG 时：
 
 ```bash
-shasum -a 256 OnTop-1.3.0-universal.dmg
+shasum -a 256 OnTop-1.4.0-macos-universal.dmg
 # 与 SHA256SUMS 中对应条目的摘要比对。
 ```
 
@@ -59,7 +59,7 @@ shasum -a 256 OnTop-1.3.0-universal.dmg
 安装 GitHub CLI 后，还可以验证构建来源：
 
 ```bash
-gh attestation verify OnTop-1.3.0-universal.dmg --repo laixintao/ontop
+gh attestation verify OnTop-1.4.0-macos-universal.dmg --repo laixintao/ontop
 ```
 
 ## 签名状态

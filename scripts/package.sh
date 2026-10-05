@@ -5,7 +5,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ $# -eq 0 ]] || { echo "Usage: scripts/package.sh" >&2; exit 1; }
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PROJECT_ROOT/OnTop/Info.plist")"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid app version: $VERSION" >&2; exit 1; }
-NAME="OnTop-$VERSION-universal"
+NAME="OnTop-$VERSION-macos-universal"
 
 "$PROJECT_ROOT/scripts/build.sh" Release universal
 mkdir -p "$PROJECT_ROOT/dist"
@@ -29,6 +29,7 @@ hdiutil verify -quiet "$STAGING_DIR/$NAME.dmg"
 # Only remove files owned by this script, never the whole dist directory.
 rm -rf "$PROJECT_ROOT/dist/OnTop.app"
 rm -f "$PROJECT_ROOT"/dist/OnTop-*-universal.dmg "$PROJECT_ROOT"/dist/OnTop-*-universal.zip
+rm -f "$PROJECT_ROOT"/dist/OnTop-*-macos-universal.dmg "$PROJECT_ROOT"/dist/OnTop-*-macos-universal.zip
 for artifact in OnTop.app "$NAME.dmg" "$NAME.zip" SHA256SUMS; do
     mv "$STAGING_DIR/$artifact" "$PROJECT_ROOT/dist/$artifact"
 done

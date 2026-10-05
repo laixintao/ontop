@@ -39,12 +39,12 @@ Keep a live reference above your work, with clicks and scrolling passing through
 
 ### Install
 
-Download **OnTop-{version}-universal.dmg**, open it, and drag OnTop into Applications.
+Download **OnTop-{version}-macos-universal.dmg**, open it, and drag OnTop into Applications.
 The ZIP is also available. Both support Apple Silicon and Intel.
 
 - macOS 14+; Return to App and automatic source-app hide/restore require macOS 15.2+.
 - Ad-hoc signed, **not Apple-notarized**. If blocked on first launch, use System Settings → Privacy & Security → Open Anyway. [Apple's instructions](https://support.apple.com/en-us/102445).
-- SHA-256 checksums are in `SHA256SUMS`. Verify build provenance with `gh attestation verify OnTop-{version}-universal.dmg --repo laixintao/ontop`.
+- SHA-256 checksums are in `SHA256SUMS`. Verify build provenance with `gh attestation verify OnTop-{version}-macos-universal.dmg --repo laixintao/ontop`.
 
 ---
 
@@ -58,7 +58,7 @@ The ZIP is also available. Both support Apple Silicon and Intel.
 
 ### 安装
 
-下载 **OnTop-{version}-universal.dmg**，打开后把 OnTop 拖入「应用程序」，也可以解压 ZIP。通用包支持 Apple Silicon 和 Intel。
+下载 **OnTop-{version}-macos-universal.dmg**，打开后把 OnTop 拖入「应用程序」，也可以解压 ZIP。通用包支持 Apple Silicon 和 Intel。
 
 要求 macOS 14+；返回 App 和自动显隐要求 macOS 15.2+。**当前未经过 Apple 公证**，首次打开如被拦截，请前往「系统设置 → 隐私与安全性 → 仍要打开」。[Apple 的说明](https://support.apple.com/zh-cn/102445)。附件提供 SHA-256 校验值和 GitHub 构建来源证明。
 """
