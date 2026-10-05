@@ -4,12 +4,16 @@
 
 ## 一条命令发布
 
-在 `main` 提交好代码后，运行：
+在干净且已同步远端的 `main` 分支上，运行：
 
 ```bash
 make release                   # 1.3.1 → 1.3.2
 make release VERSION=1.4.0      # 或指定一个更高的版本
 ```
+
+OnTop、Marknote 和 Keycraft 统一遵循 [make release SOP](https://github.com/laixintao/homebrew-tap/blob/main/docs/RELEASE_STANDARD.md#maintainer-command)，
+不需要先手动修改版本或 changelog。GitHub Release 成功后，Homebrew Tap 每六小时自动同步；
+也可以手动运行 Tap 的 Update casks 工作流立即同步。
 
 任选一条执行。命令会递增 App 版本和构建号，添加 Changelog，根据当前版本标签之后的提交生成中英文发布说明，自动 commit、创建注释 tag，并**原子推送 main 和 tag**。随后由 GitHub Actions 测试、构建、上传 DMG / ZIP / 校验文件、生成来源证明，再正式发布。无需本地打包或手动上传附件。
 
