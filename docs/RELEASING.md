@@ -4,12 +4,17 @@
 
 ## One-command release
 
-After committing your work on `main`, run:
+From a clean, up-to-date `main` branch, run:
 
 ```bash
 make release                   # 1.3.1 → 1.3.2
 make release VERSION=1.4.0      # Or choose a newer version
 ```
+
+This is the shared [make release SOP](https://github.com/laixintao/homebrew-tap/blob/main/docs/RELEASE_STANDARD.md#maintainer-command)
+used by OnTop, Marknote, and Keycraft. No manual version or changelog preparation is required.
+After the GitHub Release succeeds, the Homebrew tap synchronizes on its six-hour schedule;
+run its Update casks workflow manually to synchronize immediately.
 
 Choose one command. It increments the app version and build number, adds a changelog entry, creates bilingual release notes from commits since the current version tag, commits those changes, creates an annotated tag, and **atomically pushes main and the tag**. GitHub Actions tests, builds, uploads the DMG/ZIP/checksums, attests their provenance, and publishes the release. You do not need to build or upload installers locally.
 
